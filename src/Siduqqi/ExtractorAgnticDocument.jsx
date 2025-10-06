@@ -62,7 +62,7 @@ const styleHtmlContent = (htmlString) => {
 const FinancialStatementUploaderAgentic = () => {
   // --- NEW --- Add your Gemini API Key here for testing
   // ⚠️ IMPORTANT: Do NOT expose this key in a public application.
-  const GEMINI_API_KEY = "AIzaSyCMnpKpPelLj31LaeQcvVB7UNFn5-VNtG8";
+  const GEMINI_API_KEY = "";
 
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [extractedTables, setExtractedTables] = useState([]);
