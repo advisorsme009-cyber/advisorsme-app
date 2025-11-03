@@ -304,7 +304,7 @@ const ForecastingCalculationLv1 = () => {
   return (
     <ThemeProvider theme={LinkedinAITheme}>
       <Container
-        maxWidth="lg"
+        maxWidth={false}
         sx={{ mt: 4, mb: 4, fontFamily: "Inter, sans-serif" }}
       >
         <Typography

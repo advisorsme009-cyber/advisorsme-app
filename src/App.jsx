@@ -1,53 +1,158 @@
 import React from "react";
 import { BrowserRouter as Router, Route, Routes } from "react-router-dom";
-import { ThemeProvider, createTheme } from "@mui/material/styles";
+import { ThemeProvider } from "@mui/material/styles";
 
-// Siduqqi/ folder imports
+// Siduqqi/ screens
 import FinancialStatementUploader from "./Siduqqi/Extractor";
 import FinancialStatementComponent from "./Siduqqi/FinantialStatments";
 import FinancialStatementsHistorical from "./Siduqqi/FinantialStatmentsHistorical";
-import AdvisorDashboard from "./Siduqqi/Dashboard";
+import Dashboard from "./Siduqqi/Dashboard";
 import FinancialNotes from "./Siduqqi/FinantialNotes";
-import AssumptionsInputs from "./Siduqqi/LastYearInputs";
+import ForecastingCalculationLv1 from "./Siduqqi/ForecastingCalculationLv1";
+import ForecastingCalculationLv3 from "./Siduqqi/ForecastingCalculationLv3";
 import Lv3Calculations from "./Siduqqi/lv3Calculations";
-import LinkedinAITheme from "./LinkedinAI/style/LinkedinAITheme";
+import IsConHistorical from "./Siduqqi/IsConHistorical";
+import BSHistorical from "./Siduqqi/BSHistorical";
+import BSForecasting from "./Siduqqi/BSForecasting";
 
-function PricingTraining() {
+// Theme & Auth
+import LinkedinAITheme from "./LinkedinAI/style/LinkedinAITheme";
+import { AuthProvider } from "./Siduqqi/auth/AuthContext";
+import RequireAuth from "./Siduqqi/auth/RequireAuth";
+import AuthPage from "./Siduqqi/auth/AuthPage";
+import Lv1Calculations from "./Siduqqi/lv1Calculations";
+
+function App() {
   return (
     <ThemeProvider theme={LinkedinAITheme}>
-      {/* AuthProvider and PrivateRoute are removed as they likely import non-Siduqqi files, 
-          and the Siduqqi routes seem to be public. 
-          If AuthProvider/PrivateRoute are required for Siduqqi routes, they must be re-added
-          and their required non-Siduqqi imports must be kept. 
-          For now, assuming minimal dependencies outside of Siduqqi files. */}
-      <Router>
-        <Routes>
-          {/* Routes for Siduqqi/ files */}
-          <Route path="/statements" element={<FinancialStatementComponent />} />
-          <Route
-            path="/historical"
-            element={<FinancialStatementsHistorical />}
-          />
-          {/* Note: FinantialStatmentsHistorical and FinancialStatementsHistorical 
-              point to the same file, keeping the latter for routes as in original code */}
-          <Route
-            path="/PdfExtractor"
-            element={<FinancialStatementUploader />}
-          />
-          <Route
-            path="/advisors/lv3Calculations/:client_id/:doc"
-            element={<Lv3Calculations />}
-          />
-          <Route path="/FinancialNotes" element={<FinancialNotes />} />
-          <Route path="/" element={<AdvisorDashboard />} />
-          <Route path="/AssumptionsInputs" element={<AssumptionsInputs />} />
+      <AuthProvider>
+        <Router>
+          <Routes>
+            <Route path="/auth" element={<AuthPage />} />
 
-          {/* Keeping a placeholder route if needed, otherwise this can be removed */}
-          {/* <Route path="/" element={<div>Siduqqi App</div>} /> */}
-        </Routes>
-      </Router>
+            <Route
+              path="/"
+              element={
+                <RequireAuth>
+                  <Dashboard />
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/statements"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <FinancialStatementComponent />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/historical"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <FinancialStatementsHistorical />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/PdfExtractor"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <FinancialStatementUploader />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/advisors/lv3Calculations/:client_id/:doc"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <Lv3Calculations />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/FinancialNotes"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <FinancialNotes />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/ForecastingCalculationLv1"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <Lv1Calculations />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/ForecastingCalculationLv3"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <Lv3Calculations />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/IsConHistorical"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <IsConHistorical />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/BSHistorical"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <BSHistorical />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/BSForecasting"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <BSForecasting />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+          </Routes>
+        </Router>
+      </AuthProvider>
     </ThemeProvider>
   );
 }
 
-export default PricingTraining;
+export default App;

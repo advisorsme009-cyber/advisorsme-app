@@ -100,7 +100,7 @@ const FinancialStatementComponent = () => {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Container maxWidth="lg" sx={{ mt: 5, mb: 5 }}>
+      <Container maxWidth={false} sx={{ mt: 5, mb: 5 }}>
         <Paper elevation={4} sx={{ p: 4, borderRadius: "15px" }}>
           <Box sx={{ textAlign: "center", mb: 4 }}>
             <Typography variant="h3" gutterBottom>

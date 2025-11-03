@@ -25,6 +25,7 @@ import {
 } from "@mui/material";
 import { ThemeProvider } from "@emotion/react";
 import LinkedinAITheme from "../LinkedinAI/style/LinkedinAITheme";
+import { apiUrl } from "./hooks/api";
 
 /**
  * Lv3Calculations
@@ -36,8 +37,6 @@ import LinkedinAITheme from "../LinkedinAI/style/LinkedinAITheme";
  * - "Recalculate" posts updated assumptions (and current data) to update API then re-fetches.
  * - Uses MUI components for a clean UI.
  */
-
-const BASE_URL = "http://127.0.0.1:8000"; // adjust if needed
 
 function a11yProps(index) {
   return {
@@ -70,11 +69,13 @@ const toNumberOrEmpty = (v) =>
   v === null || v === undefined || v === "" ? "" : Number(v);
 
 // Extract nested param objects under a section (forecasted/historical), skipping top-level labels
-const extractParamItems = (sectionObj = {}) =>
-  Object.entries(sectionObj)
+const extractParamItems = (sectionObj = {}) => {
+  if (!sectionObj || typeof sectionObj !== "object") return [];
+  return Object.entries(sectionObj)
     .filter(([key]) => key !== "param_name")
     .filter(([, val]) => val && typeof val === "object" && "param_name" in val)
     .map(([key, val]) => ({ id: key, ...val }));
+};
 
 // Collect year columns for a section. For assumptions, use growth_assumption years; otherwise numeric year keys
 const collectYears = (items, { assumptions = false } = {}) => {
@@ -101,7 +102,16 @@ export default function Lv3Calculations() {
 
   const [clientId, setClientId] = useState(urlClient);
   const [doc, setDoc] = useState(urlDoc);
-  const docOptions = ["S&M", "G&A", "FA"];
+  const docOptions = ["S&M", "G&A", "FA", "debt", "WC"];
+
+  // Map doc selection to API endpoint path
+  const getEndpointPath = (selectedDoc) => {
+    const normalized = (selectedDoc || "").toLowerCase();
+    if (normalized === "fa") return "fa";
+    if (normalized === "debt") return "debt";
+    if (normalized === "wc") return "wc";
+    return "sm_gm"; // default for S&M and G&A
+  };
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -149,14 +159,17 @@ export default function Lv3Calculations() {
     if (!data) return;
     const next = {};
     const nextBase = {};
-    extractParamItems(data.forecasted).forEach((it) => {
-      const ga = it.growth_assumption || {};
-      next[it.id] = {};
-      Object.keys(ga).forEach((yr) => {
-        if (isYearKey(yr)) next[it.id][yr] = toNumberOrEmpty(ga[yr]);
+    // Handle case when forecasted is null (e.g., WC endpoint)
+    if (data.forecasted) {
+      extractParamItems(data.forecasted).forEach((it) => {
+        const ga = it.growth_assumption || {};
+        next[it.id] = {};
+        Object.keys(ga).forEach((yr) => {
+          if (isYearKey(yr)) next[it.id][yr] = toNumberOrEmpty(ga[yr]);
+        });
+        nextBase[it.id] = it.base_kpi || "YoY%";
       });
-      nextBase[it.id] = it.base_kpi || "YoY%";
-    });
+    }
     setAssumptions(next);
     setBaseKpis(nextBase);
   }, [data]);
@@ -178,9 +191,16 @@ export default function Lv3Calculations() {
     setError("");
     setLoading(true);
     try {
-      const url = `${BASE_URL}/calculation/lv3/fetch?client_id=${encodeURIComponent(
-        clientId
-      )}&doc=${encodeURIComponent(doc)}`;
+      const endpoint = getEndpointPath(doc);
+      // Special handling for WC - use different endpoint pattern
+      const url =
+        doc.toLowerCase() === "wc"
+          ? `${apiUrl}/calculation/lv3/WC/fetch/?client_id=${encodeURIComponent(
+              clientId
+            )}`
+          : `${apiUrl}/calculation/lv3/${endpoint}/fetch?client_id=${encodeURIComponent(
+              clientId
+            )}`;
       const res = await fetch(url, { headers: { accept: "application/json" } });
       if (!res.ok) throw new Error(`Fetch failed (${res.status})`);
       const json = await res.json();
@@ -195,6 +215,18 @@ export default function Lv3Calculations() {
 
   const handleRecalculate = async () => {
     if (!data) return;
+
+    // Check if forecasted data is available
+    if (!data.forecasted) {
+      setSnack({
+        open: true,
+        message:
+          "Recalculate is not available - forecasted data is not present.",
+        severity: "warning",
+      });
+      return;
+    }
+
     setLoading(true);
     setError("");
 
@@ -216,7 +248,7 @@ export default function Lv3Calculations() {
     );
 
     try {
-      const res = await fetch(`${BASE_URL}/calculation/lv3/update`, {
+      const res = await fetch(`${apiUrl}/calculation/lv3/update`, {
         method: "POST",
         headers: {
           accept: "application/json",
@@ -307,7 +339,7 @@ export default function Lv3Calculations() {
             variant="outlined"
             color="primary"
             onClick={handleRecalculate}
-            disabled={!data || loading}
+            disabled={!data || loading || !data?.forecasted}
           >
             Recalculate
           </Button>
@@ -354,7 +386,7 @@ export default function Lv3Calculations() {
                     value={baseKpis?.[it.id] ?? it.base_kpi ?? "YoY%"}
                     onChange={(e) => handleBaseKpiChange(it.id, e.target.value)}
                   >
-                    {["YoY%", "Sales%"].map((opt) => (
+                    {["YoY%", "Sales%", "Sales", "COGS"].map((opt) => (
                       <MenuItem key={opt} value={opt}>
                         {opt}
                       </MenuItem>
@@ -453,43 +485,118 @@ export default function Lv3Calculations() {
     </Paper>
   );
 
-  const HistoricalTable = () => (
-    <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>
-        Historical
-      </Typography>
-      <Table size="small" stickyHeader>
-        <TableHead>
-          <TableRow>
-            <TableCell sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>
-              Parameter
-            </TableCell>
-            {historicalYears.map((yr) => (
-              <TableCell key={yr} align="right" sx={{ fontWeight: 700 }}>
-                {yr}
+  const HistoricalTable = () => {
+    // Check if we have growth_assumption data in historical items (for WC endpoint)
+    const hasGrowthAssumptions = historicalItems.some(
+      (it) =>
+        it.growth_assumption && Object.keys(it.growth_assumption).length > 0
+    );
+
+    return (
+      <Paper sx={{ p: 2 }}>
+        <Typography variant="h6" gutterBottom>
+          Historical
+        </Typography>
+        <Table size="small" stickyHeader>
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>
+                Parameter
               </TableCell>
-            ))}
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {historicalItems.map((it) => (
-            <TableRow key={it.id} hover>
-              <TableCell sx={{ whiteSpace: "nowrap" }}>
-                {it.param_name}
-              </TableCell>
+              {hasGrowthAssumptions && (
+                <TableCell sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>
+                  Base KPI
+                </TableCell>
+              )}
               {historicalYears.map((yr) => (
-                <TableCell key={yr} align="right">
-                  {isYearKey(yr) && it[yr] !== undefined
-                    ? numberFmt.format(it[yr])
-                    : "—"}
+                <TableCell key={yr} align="right" sx={{ fontWeight: 700 }}>
+                  {yr}
                 </TableCell>
               ))}
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </Paper>
-  );
+          </TableHead>
+          <TableBody>
+            {/* First Group: Historical Values */}
+            {historicalItems.map((it) => (
+              <TableRow key={it.id} hover>
+                <TableCell sx={{ whiteSpace: "nowrap" }}>
+                  {it.param_name}
+                </TableCell>
+                {hasGrowthAssumptions && (
+                  <TableCell
+                    sx={{ whiteSpace: "nowrap", fontSize: "0.875rem" }}
+                  >
+                    {it.base_kpi || "—"}
+                  </TableCell>
+                )}
+                {historicalYears.map((yr) => (
+                  <TableCell key={yr} align="right">
+                    {isYearKey(yr) && it[yr] !== undefined && it[yr] !== null
+                      ? numberFmt.format(it[yr])
+                      : "—"}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+
+            {/* Divider Row */}
+            {hasGrowthAssumptions && (
+              <TableRow>
+                <TableCell
+                  colSpan={
+                    historicalYears.length + (hasGrowthAssumptions ? 2 : 1)
+                  }
+                  sx={{ py: 1 }}
+                >
+                  <Divider>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      Growth Assumptions (%)
+                    </Typography>
+                  </Divider>
+                </TableCell>
+              </TableRow>
+            )}
+
+            {/* Second Group: Growth Assumptions */}
+            {hasGrowthAssumptions &&
+              historicalItems.map((it) => {
+                if (!it.growth_assumption) return null;
+                return (
+                  <TableRow
+                    key={`${it.id}-growth`}
+                    hover
+                    sx={{ backgroundColor: "action.hover" }}
+                  >
+                    <TableCell
+                      sx={{
+                        whiteSpace: "nowrap",
+                        fontStyle: "italic",
+                        fontSize: "0.875rem",
+                      }}
+                    >
+                      {it.param_name}
+                    </TableCell>
+                    {hasGrowthAssumptions && <TableCell />}
+                    {historicalYears.map((yr) => (
+                      <TableCell
+                        key={yr}
+                        align="right"
+                        sx={{ fontSize: "0.875rem" }}
+                      >
+                        {it.growth_assumption[yr] !== undefined &&
+                        it.growth_assumption[yr] !== null
+                          ? numberFmt.format(it.growth_assumption[yr])
+                          : "—"}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                );
+              })}
+          </TableBody>
+        </Table>
+      </Paper>
+    );
+  };
 
   return (
     <ThemeProvider theme={LinkedinAITheme}>
@@ -514,26 +621,39 @@ export default function Lv3Calculations() {
 
         {data && !loading && (
           <Paper elevation={0} sx={{ p: 0 }}>
-            <Tabs
-              value={tab}
-              onChange={(_, v) => setTab(v)}
-              aria-label="lv3 views"
-              sx={{ borderBottom: 1, borderColor: "divider" }}
-            >
-              <Tab label="Assumptions" {...a11yProps(0)} />
-              <Tab label="Forecast" {...a11yProps(1)} />
-              <Tab label="Historical" {...a11yProps(2)} />
-            </Tabs>
+            {!data.forecasted && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Forecasted data is not available for this document. Only
+                historical data is shown.
+              </Alert>
+            )}
 
-            <TabPanel value={tab} index={0}>
-              <AssumptionsTable />
-            </TabPanel>
-            <TabPanel value={tab} index={1}>
-              <ForecastTable />
-            </TabPanel>
-            <TabPanel value={tab} index={2}>
+            {data.forecasted ? (
+              <>
+                <Tabs
+                  value={tab}
+                  onChange={(_, v) => setTab(v)}
+                  aria-label="lv3 views"
+                  sx={{ borderBottom: 1, borderColor: "divider" }}
+                >
+                  <Tab label="Assumptions" {...a11yProps(0)} />
+                  <Tab label="Forecast" {...a11yProps(1)} />
+                  <Tab label="Historical" {...a11yProps(2)} />
+                </Tabs>
+
+                <TabPanel value={tab} index={0}>
+                  <AssumptionsTable />
+                </TabPanel>
+                <TabPanel value={tab} index={1}>
+                  <ForecastTable />
+                </TabPanel>
+                <TabPanel value={tab} index={2}>
+                  <HistoricalTable />
+                </TabPanel>
+              </>
+            ) : (
               <HistoricalTable />
-            </TabPanel>
+            )}
           </Paper>
         )}
 

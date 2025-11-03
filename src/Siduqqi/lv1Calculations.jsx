@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Box,
   Card,
@@ -22,14 +23,12 @@ import {
   Divider,
   Icon,
 } from "@mui/material";
-import ZoomInIcon from "@mui/icons-material/ZoomIn";
 import { ThemeProvider } from "@emotion/react";
 import LinkedinAITheme from "../LinkedinAI/style/LinkedinAITheme";
+import { apiUrl } from "./hooks/api";
 
 // Simple, elegant MUI-based component that fetches and displays LV1 calculations
 // Years are shown as columns and rows start with param_name. Original server order is preserved.
-
-const API_BASE = "http://127.0.0.1:8000";
 
 function numberFormat(value) {
   if (value === null || value === undefined || value === "") return "";
@@ -47,6 +46,7 @@ function numberFormat(value) {
 }
 
 export default function Lv1Calculations() {
+  const navigate = useNavigate();
   const [clientId, setClientId] = useState("");
   const [rawData, setRawData] = useState(null); // raw API payload
   const [orderedKeys, setOrderedKeys] = useState([]); // preserve server-provided order
@@ -57,7 +57,7 @@ export default function Lv1Calculations() {
     setError("");
     setLoading(true);
     try {
-      const url = `${API_BASE}/calculation/lv1/fetch?client_id=${encodeURIComponent(
+      const url = `${apiUrl}/calculation/lv1/fetch?client_id=${encodeURIComponent(
         clientId
       )}`;
       const res = await fetch(url, {
@@ -114,10 +114,10 @@ export default function Lv1Calculations() {
 
   const openReference = (doc) => {
     if (!clientId) return; // avoid opening malformed URL
-    const href = `/advisors/lv3Calculations/${encodeURIComponent(
+    const path = `/advisors/lv3Calculations/${encodeURIComponent(
       clientId
     )}/${encodeURIComponent(doc)}`;
-    window.open(href, "_blank", "noopener");
+    navigate(path);
   };
 
   return (

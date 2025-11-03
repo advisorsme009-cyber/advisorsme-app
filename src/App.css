@@ -1,8 +1,9 @@
+/* Remove global width constraints to allow full-width layouts under MUI */
 #root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  text-align: inherit;
 }
 
 .logo {

@@ -11,7 +11,6 @@ import {
   Divider,
   IconButton,
   Tooltip,
-  Icon,
 } from "@mui/material";
 import {
   Delete as DeleteIcon,
@@ -135,9 +134,7 @@ const TablesUI = ({ tables, pages }) => {
                       onClick={() => handleCopyTable(tbl.table_english)}
                       aria-label="copy table"
                     >
-                      <Icon sx={{ color: "primary.main", m: 2 }}>
-                        content_copy_icon
-                      </Icon>
+                      <ContentCopyIcon sx={{ color: "primary.main", m: 2 }} />
                     </IconButton>
                   </Tooltip>
                 </Stack>

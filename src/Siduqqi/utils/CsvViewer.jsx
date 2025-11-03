@@ -10,8 +10,9 @@ const CsvViewer = ({ csvString }) => {
   // Parse and normalize once per csvString
   const { columns, rows } = useMemo(() => {
     const { data } = Papa.parse(csvString, {
-      delimiter: ",",
+      // Let Papa auto-detect delimiter and quotes
       skipEmptyLines: true,
+      dynamicTyping: false,
     });
 
     if (!data || data.length === 0) {
@@ -21,21 +22,41 @@ const CsvViewer = ({ csvString }) => {
     // Determine header rows
     const header1 = data[0];
     const header2 = data[1] || [];
-    const isYearRow = header2.slice(2).every((cell) => !isNaN(cell));
+
+    const isNumericLike = (cell) => {
+      const str = (cell ?? "").toString().trim();
+      if (str === "") return false;
+      return /^-?\d+(?:\.\d+)?$/.test(str);
+    };
+
+    const numCount = header2.reduce(
+      (acc, c) => acc + (isNumericLike(c) ? 1 : 0),
+      0
+    );
+    const textCount = header2.reduce((acc, c) => {
+      const str = (c ?? "").toString().trim();
+      if (str === "") return acc;
+      return acc + (!isNumericLike(str) ? 1 : 0);
+    }, 0);
+
+    // Consider header2 as a second header row only if it contains at least 2 numeric-like cells
+    // and no text cells. This avoids fusing first data row into header.
+    const hasSecondHeader =
+      header2.length > 0 && numCount >= 2 && textCount === 0;
 
     let columns;
     let body;
 
-    if (isYearRow) {
+    if (hasSecondHeader) {
       columns = header1.map((h, i) => {
-        const part1 = h.trim();
-        const part2 = header2[i]?.trim();
+        const part1 = (h ?? "").toString().trim();
+        const part2 = (header2[i] ?? "").toString().trim();
         if (part1 && part2) return `${part1} ${part2}`;
         return part1 || part2 || `Column ${i + 1}`;
       });
       body = data.slice(2);
     } else {
-      columns = header1.map((h, i) => h || `Column ${i + 1}`);
+      columns = header1.map((h, i) => h ?? `Column ${i + 1}`);
       body = data.slice(1);
     }
 
