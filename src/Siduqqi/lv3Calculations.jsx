@@ -1,3 +1,4 @@
+// Potentialy OLD!
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -65,8 +66,6 @@ const isYearKey = (k) => /^(19|20)\d{2}$/.test(String(k));
 const numberFmt = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 2,
 });
-const toNumberOrEmpty = (v) =>
-  v === null || v === undefined || v === "" ? "" : Number(v);
 
 // Extract nested param objects under a section (forecasted/historical), skipping top-level labels
 const extractParamItems = (sectionObj = {}) => {
@@ -102,7 +101,7 @@ export default function Lv3Calculations() {
 
   const [clientId, setClientId] = useState(urlClient);
   const [doc, setDoc] = useState(urlDoc);
-  const docOptions = ["S&M", "G&A", "FA", "debt", "WC"];
+  const docOptions = ["S&M", "G&A", "FA", "debt", "WC", "EOSP", "equity"];
 
   // Map doc selection to API endpoint path
   const getEndpointPath = (selectedDoc) => {
@@ -110,7 +109,7 @@ export default function Lv3Calculations() {
     if (normalized === "fa") return "fa";
     if (normalized === "debt") return "debt";
     if (normalized === "wc") return "wc";
-    return "sm_gm"; // default for S&M and G&A
+    return "sm_ga"; // default for S&M and G&A
   };
 
   const [loading, setLoading] = useState(false);
@@ -165,7 +164,14 @@ export default function Lv3Calculations() {
         const ga = it.growth_assumption || {};
         next[it.id] = {};
         Object.keys(ga).forEach((yr) => {
-          if (isYearKey(yr)) next[it.id][yr] = toNumberOrEmpty(ga[yr]);
+          if (isYearKey(yr)) {
+            const val = ga[yr];
+            // Store as string to allow free typing
+            next[it.id][yr] =
+              val === null || val === undefined || val === ""
+                ? ""
+                : String(val);
+          }
         });
         nextBase[it.id] = it.base_kpi || "YoY%";
       });
@@ -192,15 +198,32 @@ export default function Lv3Calculations() {
     setLoading(true);
     try {
       const endpoint = getEndpointPath(doc);
-      // Special handling for WC - use different endpoint pattern
-      const url =
-        doc.toLowerCase() === "wc"
-          ? `${apiUrl}/calculation/lv3/WC/fetch/?client_id=${encodeURIComponent(
-              clientId
-            )}`
-          : `${apiUrl}/calculation/lv3/${endpoint}/fetch?client_id=${encodeURIComponent(
-              clientId
-            )}`;
+      const docLower = (doc || "").toLowerCase();
+
+      // Special handling for different endpoint patterns
+      let url;
+      if (docLower === "wc") {
+        url = `${apiUrl}/calculation/lv3/WC/fetch/?client_id=${encodeURIComponent(
+          clientId
+        )}`;
+      } else if (docLower === "eosp" || docLower === "equity") {
+        // EOSP and equity use BS/lv3 endpoint pattern
+        // EOSP should be uppercase, equity should be lowercase
+        const docPath = docLower === "eosp" ? "EOSP" : "equity";
+        url = `${apiUrl}/calculation/BS/lv3/${docPath}/fetch/?client_id=${encodeURIComponent(
+          clientId
+        )}`;
+      } else if (docLower === "s&m" || docLower === "g&a") {
+        // S&M and G&A need document parameter in fetch
+        url = `${apiUrl}/calculation/lv3/${endpoint}/fetch?client_id=${encodeURIComponent(
+          clientId
+        )}&document=${encodeURIComponent(doc)}`;
+      } else {
+        url = `${apiUrl}/calculation/lv3/${endpoint}/fetch?client_id=${encodeURIComponent(
+          clientId
+        )}`;
+      }
+
       const res = await fetch(url, { headers: { accept: "application/json" } });
       if (!res.ok) throw new Error(`Fetch failed (${res.status})`);
       const json = await res.json();
@@ -240,7 +263,20 @@ export default function Lv3Calculations() {
         // merge: keep original keys but overwrite with edited where present
         const mergedGA = { ...originalGA };
         Object.keys(editedGA).forEach((yr) => {
-          if (isYearKey(yr)) mergedGA[yr] = Number(editedGA[yr]);
+          if (isYearKey(yr)) {
+            const val = editedGA[yr];
+            // Convert string to number, handling empty/incomplete values
+            if (val === "" || val === "-" || val === "." || val === "-.") {
+              // Keep original value if input is incomplete
+              // Don't update mergedGA[yr] - keep original
+            } else {
+              const numVal = Number(val);
+              if (!isNaN(numVal)) {
+                mergedGA[yr] = numVal;
+              }
+              // If NaN, keep original value
+            }
+          }
         });
         const newBaseKpi = baseKpis?.[k] ?? v.base_kpi;
         return [k, { ...v, base_kpi: newBaseKpi, growth_assumption: mergedGA }];
@@ -248,32 +284,39 @@ export default function Lv3Calculations() {
     );
 
     try {
-      const res = await fetch(`${apiUrl}/calculation/lv3/update`, {
+      // Unified endpoint for all documents
+      const url = `${apiUrl}/calculation/lv3/document/update`;
+
+      // Unified payload structure for all documents
+      const payload = {
+        client_id: clientId,
+        document: doc, // "S&M", "G&A", "FA", "debt", "WC", etc.
+        historical_lv3: data.historical || {},
+        forecasted_lv3: updatedForecasted,
+      };
+
+      const res = await fetch(url, {
         method: "POST",
         headers: {
           accept: "application/json",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          client_id: clientId,
-          document: doc, // API expects "document" for POST
-          historical_lv3: data.historical,
-          forecasted_lv3: updatedForecasted,
-        }),
+        body: JSON.stringify(payload),
       });
+
       if (!res.ok) throw new Error(`Update failed (${res.status})`);
-      const json = await res.json();
-      if (json?.success) {
-        setSnack({
-          open: true,
-          message: "Recalculated successfully.",
-          severity: "success",
-        });
-        // re-fetch to refresh values
-        await handleFetch();
-      } else {
-        throw new Error("Update API returned an error.");
-      }
+
+      // Read response to ensure request completed successfully
+      await res.json();
+
+      // For all documents, re-fetch to get updated data
+      setSnack({
+        open: true,
+        message: "Recalculated successfully.",
+        severity: "success",
+      });
+      // re-fetch to refresh values
+      await handleFetch();
     } catch (e) {
       console.error(e);
       setSnack({
@@ -288,13 +331,41 @@ export default function Lv3Calculations() {
   };
 
   const handleAssumptionChange = (paramKey, year, value) => {
-    setAssumptions((prev) => ({
-      ...prev,
-      [paramKey]: {
-        ...(prev[paramKey] || {}),
-        [year]: value === "" ? "" : Number(value),
-      },
-    }));
+    // Allow free typing - store as string to preserve decimal points and intermediate states
+    // Only validate that it's a valid number format (or empty)
+    const trimmedValue = value.trim();
+
+    // Allow empty, minus sign, or decimal point for intermediate typing states
+    if (
+      trimmedValue === "" ||
+      trimmedValue === "-" ||
+      trimmedValue === "." ||
+      trimmedValue === "-."
+    ) {
+      setAssumptions((prev) => ({
+        ...prev,
+        [paramKey]: {
+          ...(prev[paramKey] || {}),
+          [year]: trimmedValue,
+        },
+      }));
+      return;
+    }
+
+    // Check for valid number format: optional minus, digits, optional single decimal point, optional more digits
+    // This regex allows: "123", "123.45", "-123", "-123.45", "0.", ".5", etc.
+    // But prevents: "123..45", "---123", multiple decimal points
+    const decimalCount = (trimmedValue.match(/\./g) || []).length;
+    if (decimalCount <= 1 && /^-?\d*\.?\d*$/.test(trimmedValue)) {
+      setAssumptions((prev) => ({
+        ...prev,
+        [paramKey]: {
+          ...(prev[paramKey] || {}),
+          [year]: trimmedValue,
+        },
+      }));
+    }
+    // If invalid format, don't update (prevents invalid characters)
   };
 
   const handleBaseKpiChange = (paramKey, value) => {
@@ -403,9 +474,14 @@ export default function Lv3Calculations() {
                     onChange={(e) =>
                       handleAssumptionChange(it.id, yr, e.target.value)
                     }
-                    type="number"
-                    inputProps={{ inputMode: "decimal", step: "any" }}
+                    type="text"
+                    inputProps={{
+                      inputMode: "decimal",
+                      pattern: "[0-9.-]*",
+                      style: { textAlign: "right" },
+                    }}
                     sx={{ width: 110 }}
+                    placeholder="0.00"
                   />
                 </TableCell>
               ))}
@@ -432,7 +508,14 @@ export default function Lv3Calculations() {
               const ga = it.growth_assumption || {};
               next[it.id] = {};
               Object.keys(ga).forEach((yr) => {
-                if (isYearKey(yr)) next[it.id][yr] = toNumberOrEmpty(ga[yr]);
+                if (isYearKey(yr)) {
+                  const val = ga[yr];
+                  // Store as string to allow free typing
+                  next[it.id][yr] =
+                    val === null || val === undefined || val === ""
+                      ? ""
+                      : String(val);
+                }
               });
               nextBase[it.id] = it.base_kpi || "YoY%";
             });

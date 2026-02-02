@@ -17,6 +17,7 @@ import {
   Info as InfoIcon,
   Calculate as CalculateIcon,
   Insights as InsightsIcon,
+  TableChart as TableChartIcon,
 } from "@mui/icons-material";
 
 // Configure what to show here. Toggle `show` to hide/show tiles or add new items.
@@ -41,7 +42,7 @@ export const dashboardItems = [
   },
   {
     key: "historical",
-    title: "Historical Data",
+    title: "Consolidated Data",
     description: "Review historical extractions",
     path: "/historical",
     icon: HistoryIcon,
@@ -58,24 +59,6 @@ export const dashboardItems = [
     show: true,
   },
   {
-    key: "calculations",
-    title: "Calculations",
-    description: "Compute KPIs and scenarios",
-    path: "/calculations",
-    icon: CalculateIcon,
-    color: "#00838f",
-    show: true,
-  },
-  {
-    key: "forecast_lv1",
-    title: "Forecasting Lv1",
-    description: "Edit assumptions and recalc",
-    path: "/ForecastingCalculationLv1",
-    icon: InsightsIcon,
-    color: "#7b1fa2",
-    show: true,
-  },
-  {
     key: "forecast_lv3",
     title: "Forecasting Lv3",
     description: "Sales & gross margin modeling",
@@ -83,24 +66,6 @@ export const dashboardItems = [
     icon: InsightsIcon,
     color: "#455a64",
     show: true,
-  },
-  {
-    key: "assumptions_inputs",
-    title: "Last Year Inputs",
-    description: "Enter baseline figures",
-    path: "/AssumptionsInputs",
-    icon: CalculateIcon,
-    color: "#5d4037",
-    show: false,
-  },
-  {
-    key: "assumptions_full",
-    title: "Assumptions Full",
-    description: "Advanced input editor",
-    path: "/AssumptionsInputsFull",
-    icon: CalculateIcon,
-    color: "#1565c0",
-    show: false,
   },
   {
     key: "create_lv1_iscon",
@@ -118,6 +83,15 @@ export const dashboardItems = [
     path: "/IsConHistorical",
     icon: HistoryIcon,
     color: "#00695c",
+    show: true,
+  },
+  {
+    key: "financial_summary",
+    title: "Financial Summary",
+    description: "Unified Income Statement and Balance Sheet view",
+    path: "/FinancialSummary",
+    icon: TableChartIcon,
+    color: "#0288d1",
     show: true,
   },
 ];

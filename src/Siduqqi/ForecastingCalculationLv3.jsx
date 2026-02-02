@@ -10,9 +10,11 @@ import {
   CircularProgress,
   Alert,
   Box,
+  MenuItem,
 } from "@mui/material";
 import { ThemeProvider } from "@emotion/react";
 import LinkedinAITheme from "../LinkedinAI/style/LinkedinAITheme";
+import { apiUrl } from "./hooks/api";
 
 // Function to format numbers with commas
 const formatNumber = (num) => {
@@ -23,7 +25,7 @@ const formatNumber = (num) => {
   });
 };
 
-const API_BASE_URL = "http://127.0.0.1:8000/calculation/lv3/sm_gm";
+const API_BASE_URL = `${apiUrl}/calculation/lv3/`;
 const CLIENT_ID = "pwc-test-123456";
 
 const ForecastingCalculationLv3 = () => {
@@ -31,13 +33,16 @@ const ForecastingCalculationLv3 = () => {
   const [inputValues, setInputValues] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [selectedDocument, setSelectedDocument] = useState("S&M");
 
-  const fetchData = async () => {
+  const fetchData = async (documentType) => {
     setIsLoading(true);
     setError(null);
     try {
       const response = await fetch(
-        `${API_BASE_URL}/fetch?client_id=${CLIENT_ID}`
+        `${API_BASE_URL}/sm_ga/fetch?client_id=${CLIENT_ID}&document=${encodeURIComponent(
+          documentType
+        )}`
       );
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -67,7 +72,9 @@ const ForecastingCalculationLv3 = () => {
   };
 
   useEffect(() => {
-    fetchData();
+    // Initial fetch for default document
+    fetchData(selectedDocument);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleInputChange = (category, paramKey, year) => (event) => {
@@ -88,25 +95,31 @@ const ForecastingCalculationLv3 = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const payload = Object.entries(inputValues).map(([category, params]) => ({
-        category,
-        data: Object.entries(params).map(([paramKey, growthPercentages]) => ({
-          param_name: data[category][paramKey].param_name,
-          growth_percentages: growthPercentages,
-        })),
-      }));
-
-      const response = await fetch(
-        `${API_BASE_URL}/update?client_id=${CLIENT_ID}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify(payload),
-        }
+      const forecasted_lv3 = Object.entries(inputValues).map(
+        ([category, params]) => ({
+          category,
+          data: Object.entries(params).map(([paramKey, growthPercentages]) => ({
+            param_name: data[category][paramKey].param_name,
+            growth_percentages: growthPercentages,
+          })),
+        })
       );
+
+      const payload = {
+        client_id: CLIENT_ID,
+        document: selectedDocument,
+        historical_lv3: {},
+        forecasted_lv3,
+      };
+
+      const response = await fetch(`${API_BASE_URL}/sm_ga/update`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -146,6 +159,28 @@ const ForecastingCalculationLv3 = () => {
         >
           Financial Data Dashboard
         </Typography>
+        <Box className="flex flex-wrap items-center justify-center gap-4 mb-6">
+          <TextField
+            select
+            label="Document"
+            value={selectedDocument}
+            onChange={(e) => setSelectedDocument(e.target.value)}
+            variant="outlined"
+            size="small"
+          >
+            <MenuItem value="S&M">S&amp;M</MenuItem>
+            <MenuItem value="G&A">G&amp;A</MenuItem>
+          </TextField>
+          <Button
+            variant="outlined"
+            color="primary"
+            onClick={() => fetchData(selectedDocument)}
+            disabled={isLoading}
+            className="rounded-full"
+          >
+            {isLoading ? "Fetching..." : "Fetch"}
+          </Button>
+        </Box>
         {error && (
           <Alert severity="error" className="mb-4">
             {error}
@@ -179,10 +214,6 @@ const ForecastingCalculationLv3 = () => {
                             {Object.keys(
                               data[category][paramKey].growth_percentages
                             ).map((year) => {
-                              const value =
-                                data[category][paramKey].growth_percentages[
-                                  year
-                                ];
                               return (
                                 <Grid item xs={6} sm={4} key={year}>
                                   <TextField

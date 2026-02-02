@@ -9,16 +9,27 @@ import {
   Container,
 } from "@mui/material";
 import { ThemeProvider } from "@emotion/react";
+import { useNavigate } from "react-router-dom";
 import LinkedinAITheme from "../LinkedinAI/style/LinkedinAITheme";
 import { apiUrl } from "./hooks/api";
 import FinancialTableView from "./utils/FinancialTableView";
 
 const BSForecasting = () => {
+  const navigate = useNavigate();
   const [clientId, setClientId] = useState("pwc-test-123456");
   const [data, setData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState("");
+
+  // Handle reference navigation
+  const handleReferenceClick = (doc) => {
+    if (!clientId) return; // avoid opening malformed URL
+    const path = `/advisors/lv3Calculations/${encodeURIComponent(
+      clientId
+    )}/${encodeURIComponent(doc)}`;
+    navigate(path);
+  };
 
   const fetchData = async () => {
     setError("");
@@ -160,6 +171,7 @@ const BSForecasting = () => {
                 maximumFractionDigits: 2,
               });
             }}
+            onReferenceClick={handleReferenceClick}
           />
         )}
       </Container>

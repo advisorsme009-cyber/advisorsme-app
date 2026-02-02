@@ -5,6 +5,8 @@ import {
   Info as InfoIcon,
   Calculate as CalculateIcon,
   Insights as InsightsIcon,
+  GetApp as GetAppIcon,
+  TableChart as TableChartIcon,
 } from "@mui/icons-material";
 
 // Configurable dashboard items - edit this array to add/remove/hide items
@@ -47,7 +49,7 @@ export const dashboardItems = [
   },
   {
     key: "iscon_historical",
-    title: "PL Historical",
+    title: "Income Statement Historical",
     description: "View P&L historical data table",
     path: "/IsConHistorical",
     icon: HistoryIcon,
@@ -88,6 +90,24 @@ export const dashboardItems = [
     path: "/BSForecasting",
     icon: InsightsIcon,
     color: "#1565c0",
+    show: true,
+  },
+  {
+    key: "export_manager",
+    title: "Export Manager",
+    description: "Export financial statements and historical data",
+    path: "/ExportManager",
+    icon: GetAppIcon,
+    color: "#d32f2f",
+    show: true,
+  },
+  {
+    key: "financial_summary",
+    title: "Financial Summary",
+    description: "Unified Income Statement and Balance Sheet view",
+    path: "/FinancialSummary",
+    icon: TableChartIcon,
+    color: "#0288d1",
     show: true,
   },
 ];

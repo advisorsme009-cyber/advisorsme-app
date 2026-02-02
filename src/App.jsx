@@ -14,12 +14,15 @@ import Lv3Calculations from "./Siduqqi/lv3Calculations";
 import IsConHistorical from "./Siduqqi/IsConHistorical";
 import BSHistorical from "./Siduqqi/BSHistorical";
 import BSForecasting from "./Siduqqi/BSForecasting";
+import ExportManager from "./Siduqqi/ExportManager";
+import FinancialSummaryTable from "./Siduqqi/FinancialSummaryTable";
 
 // Theme & Auth
 import LinkedinAITheme from "./LinkedinAI/style/LinkedinAITheme";
 import { AuthProvider } from "./Siduqqi/auth/AuthContext";
 import RequireAuth from "./Siduqqi/auth/RequireAuth";
 import AuthPage from "./Siduqqi/auth/AuthPage";
+import SignupPage from "./Siduqqi/auth/SignupPage";
 import Lv1Calculations from "./Siduqqi/lv1Calculations";
 
 function App() {
@@ -29,6 +32,7 @@ function App() {
         <Router>
           <Routes>
             <Route path="/auth" element={<AuthPage />} />
+            <Route path="/signup" element={<SignupPage />} />
 
             <Route
               path="/"
@@ -144,6 +148,28 @@ function App() {
                 <RequireAuth>
                   <Dashboard>
                     <BSForecasting />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/ExportManager"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <ExportManager />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/FinancialSummary"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <FinancialSummaryTable />
                   </Dashboard>
                 </RequireAuth>
               }

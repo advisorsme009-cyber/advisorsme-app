@@ -26,7 +26,8 @@ const IsConHistorical = () => {
 
     try {
       const response = await fetch(
-        `${apiUrl}/calculation/PL/fetch/${clientId}`,
+        `${apiUrl}
+        fetch/${clientId}`,
         {
           method: "GET",
           headers: { Accept: "application/json" },

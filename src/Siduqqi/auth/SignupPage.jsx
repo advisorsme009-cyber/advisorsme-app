@@ -1,10 +1,8 @@
-// AuthPage.jsx
-import React, { useState, useEffect } from "react";
+// SignupPage.jsx
+import React, { useState } from "react";
 import {
   Box,
   Button,
-  Checkbox,
-  FormControlLabel,
   Grid,
   IconButton,
   InputAdornment,
@@ -14,11 +12,11 @@ import {
   Alert,
 } from "@mui/material";
 import { Visibility, VisibilityOff } from "@mui/icons-material";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 
-// Import the new reusable sidebar
-import AuthSidebar from "./AuthSidebar"; 
+// Import the reusable sidebar
+import AuthSidebar from "./AuthSidebar";
 
 const COLORS = {
   primaryBlue: "#153a73",
@@ -27,64 +25,43 @@ const COLORS = {
   textGrey: "#6c757d",
 };
 
-const REMEMBER_ME_KEY = "advisorsme_remember_me";
-
-const AuthPage = () => {
+const SignupPage = () => {
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const { loginWithEmail } = useAuth();
+  const { signup } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
-  const from = location.state?.from?.pathname || "/";
 
-  // Load saved credentials on mount
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(REMEMBER_ME_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.email) {
-          setEmail(parsed.email);
-          setPassword(parsed.password || "");
-          setRememberMe(true);
-        }
-      }
-    } catch (e) {
-      console.debug("Failed to load remembered credentials", e);
-    }
-  }, []);
-
-  const handleLogin = async () => {
+  const handleSignup = async () => {
     setError("");
+
+    // Validation
+    if (!email || !username || !password || !confirmPassword) {
+      setError("Please fill in all fields");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+
+    if (password.length < 3) {
+      setError("Password must be at least 3 characters long");
+      return;
+    }
+
     setLoading(true);
     try {
-      await loginWithEmail(email, password);
-      
-      // Save credentials if remember me is checked
-      if (rememberMe) {
-        try {
-          localStorage.setItem(
-            REMEMBER_ME_KEY,
-            JSON.stringify({ email, password })
-          );
-        } catch (e) {
-          console.debug("Failed to save remembered credentials", e);
-        }
-      } else {
-        // Clear saved credentials if remember me is unchecked
-        try {
-          localStorage.removeItem(REMEMBER_ME_KEY);
-        } catch (e) {
-          console.debug("Failed to clear remembered credentials", e);
-        }
-      }
-      
-      navigate(from, { replace: true });
+      await signup({ email, password, username });
+      // After successful signup, redirect to login page
+      navigate("/auth", { state: { message: "Account created successfully! Please sign in." } });
     } catch (e) {
       setError(String(e.message || e));
     } finally {
@@ -96,13 +73,16 @@ const AuthPage = () => {
     setShowPassword((prev) => !prev);
   };
 
+  const toggleConfirmPasswordVisibility = () => {
+    setShowConfirmPassword((prev) => !prev);
+  };
+
   return (
     <Grid container sx={{ minHeight: "100vh" }}>
-      
       {/* 1. Reusable Left Side Component */}
       <AuthSidebar />
 
-      {/* 2. Right Side Login Form */}
+      {/* 2. Right Side Signup Form */}
       <Grid
         item
         xs={12}
@@ -114,7 +94,7 @@ const AuthPage = () => {
           justifyContent: "center",
           bgcolor: "white",
           px: 4,
-          py: 4, // Added padding-y for mobile spacing
+          py: 4,
         }}
       >
         <Box sx={{ width: "100%", maxWidth: 450 }}>
@@ -129,10 +109,10 @@ const AuthPage = () => {
                 fontSize: { xs: "1.5rem", md: "1.75rem" },
               }}
             >
-              Welcome to Advisors M.E.
+              Create Your Account
             </Typography>
             <Typography variant="body2" sx={{ color: COLORS.textGrey }}>
-              We kindly request you to provide your details.
+              Join Advisors M.E. and get started today
             </Typography>
           </Box>
 
@@ -147,10 +127,30 @@ const AuthPage = () => {
           <Box component="form" noValidate>
             <TextField
               fullWidth
-              placeholder="Email or Phone number"
+              placeholder="Email"
               variant="outlined"
+              type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              sx={{
+                mb: 2.5,
+                "& .MuiOutlinedInput-root": {
+                  backgroundColor: COLORS.inputBg,
+                  borderRadius: "8px",
+                  "& fieldset": { borderColor: "#e0e0e0" },
+                  "&:hover fieldset": { borderColor: "#b0b0b0" },
+                  "&.Mui-focused fieldset": { borderColor: COLORS.primaryBlue },
+                },
+                "& input": { py: 1.5 },
+              }}
+            />
+
+            <TextField
+              fullWidth
+              placeholder="Username"
+              variant="outlined"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               sx={{
                 mb: 2.5,
                 "& .MuiOutlinedInput-root": {
@@ -185,7 +185,7 @@ const AuthPage = () => {
                 ),
               }}
               sx={{
-                mb: 1,
+                mb: 2.5,
                 "& .MuiOutlinedInput-root": {
                   backgroundColor: COLORS.inputBg,
                   borderRadius: "8px",
@@ -197,42 +197,45 @@ const AuthPage = () => {
               }}
             />
 
-            {/* Remember Me & Forgot Password */}
-            <Box
-              sx={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                mb: 4,
+            <TextField
+              fullWidth
+              placeholder="Confirm Password"
+              type={showConfirmPassword ? "text" : "password"}
+              variant="outlined"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={toggleConfirmPasswordVisibility}
+                      edge="end"
+                      size="small"
+                    >
+                      {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
               }}
-            >
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    size="small"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    sx={{
-                      color: "#b0b0b0",
-                      "&.Mui-checked": { color: COLORS.primaryBlue },
-                    }}
-                  />
-                }
-                label={
-                  <Typography variant="body2" color="text.secondary">
-                    Remember me
-                  </Typography>
-                }
-              />
-            
-            </Box>
+              sx={{
+                mb: 4,
+                "& .MuiOutlinedInput-root": {
+                  backgroundColor: COLORS.inputBg,
+                  borderRadius: "8px",
+                  "& fieldset": { borderColor: "#e0e0e0" },
+                  "&:hover fieldset": { borderColor: "#b0b0b0" },
+                  "&.Mui-focused fieldset": { borderColor: COLORS.primaryBlue },
+                },
+                "& input": { py: 1.5 },
+              }}
+            />
 
             {/* Submit Button */}
             <Button
               variant="contained"
               fullWidth
-              disabled={loading || !email || !password}
-              onClick={handleLogin}
+              disabled={loading || !email || !username || !password || !confirmPassword}
+              onClick={handleSignup}
               sx={{
                 bgcolor: COLORS.primaryBlue,
                 py: 1.5,
@@ -247,21 +250,21 @@ const AuthPage = () => {
                 },
               }}
             >
-              {loading ? "Signing in..." : "Sign In"}
+              {loading ? "Creating Account..." : "Sign Up"}
             </Button>
 
-            {/* Link to Signup */}
+            {/* Link to Login */}
             <Box sx={{ textAlign: "center" }}>
               <Typography variant="body2" sx={{ color: COLORS.textGrey }}>
-                Don't have an account?{" "}
+                Already have an account?{" "}
                 <Link
                   component="button"
                   variant="body2"
                   underline="none"
-                  onClick={() => navigate("/signup")}
+                  onClick={() => navigate("/auth")}
                   sx={{ color: COLORS.primaryBlue, fontWeight: 500 }}
                 >
-                  Sign Up
+                  Sign In
                 </Link>
               </Typography>
             </Box>
@@ -272,4 +275,4 @@ const AuthPage = () => {
   );
 };
 
-export default AuthPage;
+export default SignupPage;
