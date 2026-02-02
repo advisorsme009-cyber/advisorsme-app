@@ -15,29 +15,36 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import { ThemeProvider } from '@mui/material/styles';
 import { useNavigate } from 'react-router-dom';
 import LinkedinAITheme from '../LinkedinAI/style/LinkedinAITheme';
-import FinancialTableView from './utils/FinancialTableView';
+import CorporateFinancialTableView from './utils/CorporateFinancialTableView';
 import { apiUrl } from './hooks/api';
 
 const FinancialSummaryTable = ({ clientId = "pwc-test-123456" }) => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState(0); // 0: Income Statement, 1: Balance Sheet
-  const [anchorEl, setAnchorEl] = useState(null);
-  
+  // 0: Income Statement, 1: Balance Sheet
+  const [activeTab, setActiveTab] = useState(0); 
+  // 0: Historical, 1: Forecasted
+  const [viewMode, setViewMode] = useState(0);
+
   // State for data
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [mergedData, setMergedData] = useState(null);
+  
+  // Cache to store fetched data
+  // Structure: { incomeStatement: { historical: null, forecast: null }, balanceSheet: { historical: null, forecast: null } }
+  const [cache, setCache] = useState({
+    incomeStatement: { historical: null, forecast: null },
+    balanceSheet: { historical: null, forecast: null }
+  });
 
   const handleTabChange = (event, newValue) => {
     setActiveTab(newValue);
+    // When switching main tabs, default to Historical view? Or keep current?
+    // User didn't specify, but resetting to Historical is safer or keeping current is fine.
+    // Let's keep current viewMode logic simple, just switch context.
   };
 
-  const handleExportClick = (event) => {
-    setAnchorEl(event.currentTarget);
-  };
-
-  const handleExportClose = () => {
-    setAnchorEl(null);
+  const handleViewModeChange = (event, newValue) => {
+    setViewMode(newValue);
   };
 
   const handleReferenceClick = (doc) => {
@@ -48,105 +55,88 @@ const FinancialSummaryTable = ({ clientId = "pwc-test-123456" }) => {
     navigate(path);
   };
 
-  // Helper to normalize and merge data
-  const mergeData = (historicalData, forecastData, isIncomeStatement) => {
-    const combined = {};
+  // Helper to normalize data for the table
+  const normalizeData = (data, isForecast, isIncomeStatement) => {
+    if (!data) return {};
+    const normalized = {};
 
-    // 1. Process Historical Data
-    // Historical data format: { "Revenue": { "2018": 123, ... }, ... }
-    if (historicalData) {
-      Object.entries(historicalData).forEach(([key, value]) => {
-        if (!combined[key]) {
-          combined[key] = {
-            param_name: value.param_name || key,
-            reference: value.reference || null,
-            ...value // Spread to get year keys like "2018", "2019"
-          };
-        } else {
-             // If already exists, just merge new years
-            combined[key] = { ...combined[key], ...value };
-        }
-      });
-    }
+    // Logic similar to previous mergeData but for single source
+    // 1. IS Forecast (ForecastingCalculationLv1)
+    if (isIncomeStatement && isForecast) {
+       const extracted = data.extracted_param?.["IS-CON"] || {};
+       const calculated = data.calculation_lv1 || {};
+       
+       let hasData = false;
 
-    // 2. Process Forecast Data
-    // IS Forecast (ForecastingCalculationLv1) structure: { extracted_param: { "IS-CON": { ... } }, assumptions: { ... }, calculation_lv1: { ... } }
-    // BS Forecast (BSForecasting) structure: { "MetricName": { ...years... } } similar to historical
-    
-    let forecastSource = forecastData;
-    
-    if (isIncomeStatement && forecastData) {
-      // For Income Statement, we might need to decide which part of forecast to show.
-      // The prompt implies unified view. Usually "Forecast" comes from 'calculation_lv1' or 'extracted_param["IS-CON"]'
-      // Depending on the requirement, we might need to merge multiple sections or just one.
-      // Based on `ForecastingCalculationLv1.jsx`, `extracted_param["IS-CON"]` seems to map to historical items like "Revenue".
-      // Let's try to merge `extracted_param["IS-CON"]` AND `calculation_lv1` if possible, or just the one that aligns.
-      // Typically "Forecast" extends the historical lines.
-      
-      const extracted = forecastData.extracted_param?.["IS-CON"] || {};
-      const calculated = forecastData.calculation_lv1 || {};
-      
-      // Merge extracted params (often contains the forecast values for same keys)
-       Object.entries(extracted).forEach(([key, value]) => {
-         if (!combined[key]) {
-             combined[key] = {
+       // Merge extracted
+        Object.entries(extracted).forEach(([key, value]) => {
+         if (!normalized[key]) {
+             normalized[key] = {
                  param_name: value.param_name || key,
                  reference: value.reference || null,
                  ...value
              };
+             hasData = true;
          } else {
-             // Merge years
              Object.entries(value).forEach(([k, v]) => {
-                 if (/^\d{4}$/.test(k)) {
-                     combined[key][k] = v;
-                 }
+                 if (/^\d{4}$/.test(k)) normalized[key][k] = v;
              });
+             hasData = true;
          }
        });
 
-       // Merge calculation_lv1 (The actual forecast results)
+       // Merge calculated
        Object.entries(calculated).forEach(([key, value]) => {
-          if (!combined[key]) {
-              combined[key] = {
-                  param_name: key, // calculation_lv1 usually keys by param name
+          if (!normalized[key]) {
+              normalized[key] = {
+                  param_name: key, 
                   reference: null,
                   ...value
               };
+              hasData = true;
           } else {
                Object.entries(value).forEach(([k, v]) => {
-                  if (/^\d{4}$/.test(k)) {
-                      combined[key][k] = v;
-                  }
+                  if (/^\d{4}$/.test(k)) normalized[key][k] = v;
                });
+               hasData = true;
           }
        });
-    } else if (!isIncomeStatement && forecastData) {
-        // BS Forecast is simpler flat structure
-         Object.entries(forecastData).forEach(([key, value]) => {
-            if (!combined[key]) {
-                 combined[key] = {
-                     param_name: value.param_name || key,
-                     reference: value.reference || null,
-                     ...value
-                 };
-             } else {
-                 Object.entries(value).forEach(([k, v]) => {
-                     if (/^\d{4}$/.test(k)) {
-                         combined[key][k] = v;
-                     }
-                 });
-             }
-         });
+       
+       if (hasData) return normalized;
+       // If no data found with special structure, fall through to generic parsing below
+       console.warn("IS Forecast special parsing found no data, falling back to generic parsing", data);
     }
 
-    return combined;
+    // 2. IS Historical or BS Forecast/Historical (Simpler structure)
+    Object.entries(data).forEach(([key, value]) => {
+        if (!normalized[key]) {
+            normalized[key] = {
+                param_name: value.param_name || key,
+                reference: value.reference || null,
+                ...value 
+            };
+        } else {
+            Object.entries(value).forEach(([k, v]) => {
+                 if (/^\d{4}$/.test(k)) normalized[key][k] = v;
+             });
+        }
+    });
+
+    return normalized;
   };
 
   useEffect(() => {
     const fetchData = async () => {
+      const currentCategory = activeTab === 0 ? 'incomeStatement' : 'balanceSheet';
+      
+      // Check if we already have data for the current category in cache
+      // We fetch BOTH Historical and Forecast for the category at once to allow smooth toggling
+      if (cache[currentCategory].historical && cache[currentCategory].forecast) {
+        return; // Already cached
+      }
+
       setIsLoading(true);
       setError("");
-      setMergedData(null);
 
       try {
         let histUrl = "";
@@ -155,14 +145,14 @@ const FinancialSummaryTable = ({ clientId = "pwc-test-123456" }) => {
         if (activeTab === 0) {
           // Income Statement
           histUrl = `${apiUrl}/calculation/PL/fetch/${clientId}`;
-          // For IS Forecast, usually we create/fetch:
-          forecastUrl = `${apiUrl}/calculation/lv1/revenue/create?client_id=${clientId}`;
+          forecastUrl = `${apiUrl}/calculation/lv1/fetch?client_id=${clientId}`;
         } else {
           // Balance Sheet
           histUrl = `${apiUrl}/calculation/BS/historical/lv1/fetch/?client_id=${encodeURIComponent(clientId)}`;
           forecastUrl = `${apiUrl}/calculation/BS/forecasting/lv1/fetch/?client_id=${encodeURIComponent(clientId)}`;
         }
 
+        // We fetch both to populate cache fully for this tab
         const [histRes, forecastRes] = await Promise.all([
             fetch(histUrl, { headers: { Accept: "application/json" } }),
             fetch(forecastUrl, { headers: { Accept: "application/json" } })
@@ -174,8 +164,16 @@ const FinancialSummaryTable = ({ clientId = "pwc-test-123456" }) => {
         const histJson = await histRes.json();
         const forecastJson = await forecastRes.json();
 
-        const merged = mergeData(histJson, forecastJson, activeTab === 0);
-        setMergedData(merged);
+        console.log("FinancialSummaryTable Data Fetched:", { histJson, forecastJson });
+
+        // Update cache
+        setCache(prev => ({
+          ...prev,
+          [currentCategory]: {
+            historical: normalizeData(histJson, false, activeTab === 0),
+            forecast: normalizeData(forecastJson, true, activeTab === 0)
+          }
+        }));
 
       } catch (err) {
         console.error("Data fetch error:", err);
@@ -188,7 +186,19 @@ const FinancialSummaryTable = ({ clientId = "pwc-test-123456" }) => {
     if (clientId) {
       fetchData();
     }
-  }, [activeTab, clientId]);
+  }, [activeTab, clientId]); // Dependency on activeTab ensures we fetch when switching IS <-> BS
+
+  // Validate which data to show
+  const currentCategory = activeTab === 0 ? 'incomeStatement' : 'balanceSheet';
+  const currentData = viewMode === 0 
+    ? cache[currentCategory].historical 
+    : cache[currentCategory].forecast;
+
+  const getTableTitle = () => {
+    const report = activeTab === 0 ? "Income Statement" : "Balance Sheet";
+    const type = viewMode === 0 ? "Historical" : "Forecasted";
+    return `${report} - ${type}`;
+  };
 
   return (
     <ThemeProvider theme={LinkedinAITheme}>
@@ -201,7 +211,7 @@ const FinancialSummaryTable = ({ clientId = "pwc-test-123456" }) => {
           </Typography>
         </Box>
 
-        {/* Tabs */}
+        {/* Main Tabs (IS vs BS) */}
         <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3, bgcolor: 'white', borderRadius: 1 }}>
           <Tabs 
             value={activeTab} 
@@ -220,12 +230,40 @@ const FinancialSummaryTable = ({ clientId = "pwc-test-123456" }) => {
         {/* Main Content */}
         <Paper elevation={0} sx={{ p: 3, borderRadius: 2 }}>
           
-          {/* Header */}
+          {/* Header & Sub-Tabs */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="h6" sx={{ fontWeight: 600, fontSize: '1rem', color: '#333' }}>
               {activeTab === 0 ? "Income Statement Overview" : "Balance Sheet Overview"}
             </Typography>
-           
+
+            {/* View Mode Tabs (Historical vs Forecasted) */}
+            <Tabs
+              value={viewMode}
+              onChange={handleViewModeChange}
+              sx={{
+                minHeight: '36px',
+                '& .MuiTab-root': {
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  fontSize: '0.85rem',
+                  minHeight: '36px',
+                  padding: '6px 16px',
+                  borderRadius: '18px',
+                  marginRight: '8px',
+                  color: '#5e6c84',
+                  '&.Mui-selected': {
+                    color: '#fff',
+                    backgroundColor: '#1F559B', // Corporate Blue
+                  }
+                },
+                '& .MuiTabs-indicator': {
+                  display: 'none', // Hide the underline indicator for "pill" look
+                }
+              }}
+            >
+               <Tab label="Historical" />
+               <Tab label="Forecasted" />
+            </Tabs>
           </Box>
 
           {/* Error Message */}
@@ -243,15 +281,14 @@ const FinancialSummaryTable = ({ clientId = "pwc-test-123456" }) => {
           )}
 
           {/* Data Table */}
-          {!isLoading && !error && mergedData && (
-            <FinancialTableView 
-                data={mergedData}
-                firstColumnLabel="Metrics"
-                onReferenceClick={handleReferenceClick}
+          {!isLoading && !error && currentData && (
+            <CorporateFinancialTableView 
+                data={currentData}
+                title={getTableTitle()}
             />
           )}
 
-          {!isLoading && !error && !mergedData && (
+          {!isLoading && !error && (!currentData || Object.keys(currentData).length === 0) && (
              <Typography variant="body1" sx={{ p: 2, textAlign: 'center', color: 'text.secondary' }}>
                 No data available.
              </Typography>
