@@ -7,6 +7,7 @@ import {
   Insights as InsightsIcon,
   GetApp as GetAppIcon,
   TableChart as TableChartIcon,
+  BarChart as BarChartIcon,
 } from "@mui/icons-material";
 
 // Configurable dashboard items - edit this array to add/remove/hide items
@@ -108,6 +109,15 @@ export const dashboardItems = [
     path: "/FinancialSummary",
     icon: TableChartIcon,
     color: "#0288d1",
+    show: true,
+  },
+  {
+    key: "report_generator",
+    title: "Report Generator",
+    description: "Visual Chart Builder for Statements",
+    path: "/ReportGenerator",
+    icon: BarChartIcon,
+    color: "#c2185b",
     show: true,
   },
 ];

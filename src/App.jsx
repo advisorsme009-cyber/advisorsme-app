@@ -16,6 +16,7 @@ import BSHistorical from "./Siduqqi/BSHistorical";
 import BSForecasting from "./Siduqqi/BSForecasting";
 import ExportManager from "./Siduqqi/ExportManager";
 import FinancialSummaryTable from "./Siduqqi/FinancialSummaryTable";
+import ReportGenerator from "./Siduqqi/ReportGenerator";
 
 // Theme & Auth
 import LinkedinAITheme from "./LinkedinAI/style/LinkedinAITheme";
@@ -170,6 +171,17 @@ function App() {
                 <RequireAuth>
                   <Dashboard>
                     <FinancialSummaryTable />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/ReportGenerator"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <ReportGenerator />
                   </Dashboard>
                 </RequireAuth>
               }
