@@ -69,5 +69,6 @@ export const CorporateTableTheme = {
         padding: '12px 16px',
         border: '1px solid #e2e8f0',
         color: '#4a5568',
+        textAlign: 'center',
     }
 };

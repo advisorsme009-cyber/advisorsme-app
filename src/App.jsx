@@ -25,14 +25,17 @@ import RequireAuth from "./Siduqqi/auth/RequireAuth";
 import AuthPage from "./Siduqqi/auth/AuthPage";
 import SignupPage from "./Siduqqi/auth/SignupPage";
 import Lv1Calculations from "./Siduqqi/lv1Calculations";
+import { SettingsProvider } from "./Siduqqi/context/SettingsContext";
+import Settings from "./Siduqqi/Settings";
 
 function App() {
   return (
     <ThemeProvider theme={LinkedinAITheme}>
       <AuthProvider>
-        <Router>
-          <Routes>
-            <Route path="/auth" element={<AuthPage />} />
+        <SettingsProvider>
+          <Router>
+            <Routes>
+              <Route path="/auth" element={<AuthPage />} />
             <Route path="/signup" element={<SignupPage />} />
 
             <Route
@@ -186,8 +189,20 @@ function App() {
                 </RequireAuth>
               }
             />
-          </Routes>
-        </Router>
+
+              <Route
+                path="/settings"
+                element={
+                  <RequireAuth>
+                    <Dashboard>
+                      <Settings />
+                    </Dashboard>
+                  </RequireAuth>
+                }
+              />
+            </Routes>
+          </Router>
+        </SettingsProvider>
       </AuthProvider>
     </ThemeProvider>
   );

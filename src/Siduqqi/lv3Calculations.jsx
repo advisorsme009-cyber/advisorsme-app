@@ -27,6 +27,7 @@ import {
 import { ThemeProvider } from "@emotion/react";
 import LinkedinAITheme from "../LinkedinAI/style/LinkedinAITheme";
 import { apiUrl } from "./hooks/api";
+import { useSettings } from "./context/SettingsContext";
 
 /**
  * Lv3Calculations
@@ -124,12 +125,10 @@ const collectYears = (items, { assumptions = false } = {}) => {
 
 export default function Lv3Calculations() {
   const params = useParams();
-  const urlClient = params?.client_id
-    ? decodeURIComponent(params.client_id)
-    : "";
+  const { clientId, getCachedData, setCachedData } = useSettings();
+  
   const urlDoc = params?.doc ? decodeURIComponent(params.doc) : "";
 
-  const [clientId, setClientId] = useState(urlClient);
   const [doc, setDoc] = useState(urlDoc);
   const docOptions = ["S&M", "G&A", "FA", "debt", "WC", "EOSP", "equity"];
 
@@ -158,10 +157,6 @@ export default function Lv3Calculations() {
     message: "",
     severity: "success",
   });
-
-  const fetchedOnceRef = useRef(false);
-
-  const canAutoFetch = Boolean(urlClient && urlDoc && !fetchedOnceRef.current);
 
   // Derivations ------------------------------------------------------
   const forecastItems = useMemo(
@@ -213,14 +208,20 @@ export default function Lv3Calculations() {
     setBaseKpis(nextBase);
   }, [data]);
 
-  // Auto-fetch if params are present in URL
+  // Auto-fetch and cache handling when doc or clientId changes
   useEffect(() => {
-    if (canAutoFetch) {
-      fetchedOnceRef.current = true;
-      handleFetch();
+    if (clientId && doc) {
+      const cached = getCachedData(`lv3_${doc}`, clientId);
+      const cachedKpi = getCachedData(`lv3_${doc}_kpi`, clientId);
+      
+      if (cached) {
+        setData(cached);
+        if (cachedKpi) setKpiData(cachedKpi);
+      } else {
+        handleFetch();
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canAutoFetch]);
+  }, [clientId, doc]);
 
   const handleFetch = async () => {
     if (!clientId || !doc) {
@@ -261,6 +262,7 @@ export default function Lv3Calculations() {
       if (!res.ok) throw new Error(`Fetch failed (${res.status})`);
       const json = await res.json();
       setData(json);
+      setCachedData(`lv3_${doc}`, clientId, json);
 
       if (docLower === "s&m" || docLower === "g&a") {
         try {
@@ -268,10 +270,11 @@ export default function Lv3Calculations() {
             clientId
           )}&document=${encodeURIComponent(doc)}`;
           const kpiRes = await fetch(kpiUrl, { headers: { accept: "application/json" } });
-          if (kpiRes.ok) {
-            const kpiJson = await kpiRes.json();
-            setKpiData(kpiJson);
-          } else {
+            if (kpiRes.ok) {
+              const kpiJson = await kpiRes.json();
+              setKpiData(kpiJson);
+              setCachedData(`lv3_${doc}_kpi`, clientId, kpiJson);
+            } else {
             setKpiData(null);
           }
         } catch (e) {
@@ -481,13 +484,6 @@ export default function Lv3Calculations() {
         spacing={2}
         alignItems={{ xs: "stretch", sm: "center" }}
       >
-        <TextField
-          label="Client ID"
-          value={clientId}
-          onChange={(e) => setClientId(e.target.value)}
-          placeholder="e.g., pwc-test-123456"
-          size="small"
-        />
         <FormControl size="small" sx={{ minWidth: 160 }}>
           <InputLabel id="doc-select-label">Document</InputLabel>
           <Select
@@ -504,8 +500,8 @@ export default function Lv3Calculations() {
           </Select>
         </FormControl>
         <Stack direction="row" spacing={1}>
-          <Button variant="contained" onClick={handleFetch} disabled={loading}>
-            {loading ? "Loading..." : "Fetch"}
+          <Button variant="contained" onClick={handleFetch} disabled={loading || !clientId || !doc}>
+            {loading ? "Loading..." : "Refresh"}
           </Button>
           <Button
             variant="outlined"

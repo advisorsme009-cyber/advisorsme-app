@@ -1,80 +1,73 @@
 import React, { useState, useEffect } from "react";
 import {
-  Container,
   Button,
   Box,
   CircularProgress,
   Alert,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
+  Tabs,
+  Tab,
+  Paper,
+  Typography,
+  Stack,
 } from "@mui/material";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { ThemeProvider } from "@mui/material/styles";
 import LinkedinAITheme from "../LinkedinAI/style/LinkedinAITheme";
 import { apiUrl } from "./hooks/api";
 import CorporateFinancialTableView from "./utils/CorporateFinancialTableView";
 import CorporateEditableTable from "./utils/CorporateEditableTable";
+import { useSettings } from "./context/SettingsContext";
 
-// The main App component
 const ForecastingCalculationLv1 = () => {
+  const { clientId, getCachedData, setCachedData } = useSettings();
   const [data, setData] = useState(null);
   const [formData, setFormData] = useState({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [expanded, setExpanded] = useState("panel1");
+  const [activeTab, setActiveTab] = useState(0);
 
-  const API_BASE_URL = "http://127.0.0.1:8000";
-  const CLIENT_ID = "pwc-test-123456";
-
-  const handleChange = (panel) => (event, isExpanded) => {
-    setExpanded(isExpanded ? panel : false);
+  const handleTabChange = (event, newValue) => {
+    setActiveTab(newValue);
   };
 
-  // Function to fetch data from the API
+  const initFormData = (jsonData) => {
+    const extractedParams = jsonData.extracted_param?.["IS-CON"] || {};
+    const assumptions = jsonData.assumptions || {};
+    const initialFormData = {};
 
-  // Function to fetch data from the API
+    for (const paramKey in extractedParams) {
+      const param = extractedParams[paramKey];
+      for (const year in param) {
+        if (year !== "param_name") {
+          initialFormData[`extracted_param.${paramKey}.${year}`] = param[year];
+        }
+      }
+    }
+    for (const paramKey in assumptions) {
+      const param = assumptions[paramKey];
+      for (const year in param) {
+        if (year !== "param_name") {
+          initialFormData[`assumptions.${paramKey}.${year}`] = param[year];
+        }
+      }
+    }
+    setFormData(initialFormData);
+  };
+
   const fetchData = async () => {
+    if (!clientId) return;
     setLoading(true);
     setError(null);
     try {
       const response = await fetch(
-        `${apiUrl}/calculation/lv1/revenue/create?client_id=${CLIENT_ID}`
+        `${apiUrl}/calculation/lv1/revenue/create?client_id=${encodeURIComponent(clientId)}`
       );
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const jsonData = await response.json();
       setData(jsonData);
-
-      // Initialize form data with mutable values from the API response
-      const extractedParams = jsonData.extracted_param["IS-CON"];
-      const assumptions = jsonData.assumptions;
-
-      const initialFormData = {};
-
-      // Flatten the nested extracted_param object into a single key-value map
-      for (const paramKey in extractedParams) {
-        const param = extractedParams[paramKey];
-        for (const year in param) {
-          if (year !== "param_name") {
-            initialFormData[`extracted_param.${paramKey}.${year}`] =
-              param[year];
-          }
-        }
-      }
-
-      // Flatten the nested assumptions object
-      for (const paramKey in assumptions) {
-        const param = assumptions[paramKey];
-        for (const year in param) {
-          if (year !== "param_name") {
-            initialFormData[`assumptions.${paramKey}.${year}`] = param[year];
-          }
-        }
-      }
-
-      setFormData(initialFormData);
+      setCachedData("forecastingLv1", clientId, jsonData);
+      initFormData(jsonData);
     } catch (e) {
       console.error("Failed to fetch data:", e);
       setError("Failed to fetch data. Please check the API server.");
@@ -83,10 +76,8 @@ const ForecastingCalculationLv1 = () => {
     }
   };
 
-  // Function to handle changes in the input fields
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    // Simple validation to ensure only numbers are entered
     if (!isNaN(value) || value === "" || value === "-" || value === ".") {
       setFormData((prev) => ({
         ...prev,
@@ -95,14 +86,13 @@ const ForecastingCalculationLv1 = () => {
     }
   };
 
-  // Function to handle the recalculate button click
   const handleRecalculate = async () => {
+    if (!clientId) return;
     setLoading(true);
     setError(null);
 
-    // Reconstruct the nested payload from the flattened formData state
     const payload = {
-      client_id: CLIENT_ID,
+      client_id: clientId,
       extracted_params: {},
       assumptions: {},
     };
@@ -120,24 +110,21 @@ const ForecastingCalculationLv1 = () => {
         }
         if (!payload.extracted_params["IS-CON"][paramName]) {
           payload.extracted_params["IS-CON"][paramName] = {
-            param_name: data.extracted_param["IS-CON"][paramName].param_name,
+            param_name: data.extracted_param["IS-CON"][paramName]?.param_name,
           };
         }
         payload.extracted_params["IS-CON"][paramName][year] = value;
       } else if (category === "assumptions") {
         if (!payload.assumptions[paramName]) {
           payload.assumptions[paramName] = {
-            param_name: data.assumptions[paramName].param_name,
+            param_name: data.assumptions[paramName]?.param_name,
           };
         }
         payload.assumptions[paramName][year] = value;
       }
     }
 
-    console.log(payload);
     try {
-      // The user's curl command showed a GET with a body, which is unconventional.
-      // This implementation uses a POST request, which is standard for an update operation.
       const response = await fetch(
         `${apiUrl}/calculation/lv1/revenue/update/`,
         {
@@ -156,157 +143,121 @@ const ForecastingCalculationLv1 = () => {
 
       const updateResult = await response.json();
       if (updateResult.status === "success") {
-        // If the update is successful, re-fetch the new calculated data
         await fetchData();
       } else {
         throw new Error("Update failed. Server response status not success.");
       }
     } catch (e) {
       console.error("Failed to update data:", e);
-      setError(
-        "Failed to update data. Please check the API server and data format."
-      );
+      setError("Failed to update data. Please check the API server and data format.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Call fetchData on component mount
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (clientId) {
+      const cached = getCachedData("forecastingLv1", clientId);
+      if (cached) {
+        setData(cached);
+        initFormData(cached);
+      } else {
+        fetchData();
+      }
+    }
+  }, [clientId]);
 
 
   return (
     <ThemeProvider theme={LinkedinAITheme}>
-      <Container
-        maxWidth={false}
-        sx={{ mt: 4, mb: 4, fontFamily: "Inter, sans-serif" }}
-      >
-        <Typography
-          variant="h4"
-          component="h1"
-          gutterBottom
-          align="center"
-          sx={{ fontWeight: "bold", mb: 4, color: "#3f51b5" }}
-        >
-          Financial Calculation Dashboard
-        </Typography>
-
-        {loading && (
-          <Box sx={{ display: "flex", justifyContent: "center", py: 5 }}>
-            <CircularProgress />
-          </Box>
-        )}
+      <Box sx={{ width: '100%', p: 3, bgcolor: '#F5F6F8', minHeight: '100vh' }}>
+        
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography variant="h5" sx={{ fontWeight: 500, color: '#333' }}>
+            Forecasting Calculations (LV1)
+          </Typography>
+          
+          <Stack direction="row" spacing={2}>
+             <Button
+                variant="outlined"
+                onClick={fetchData}
+                disabled={loading || !clientId}
+                sx={{ bgcolor: 'white' }}
+             >
+                Refresh
+             </Button>
+             <Button
+                variant="contained"
+                onClick={handleRecalculate}
+                disabled={loading || !data || !clientId}
+                sx={{ bgcolor: '#1F559B', '&:hover': { bgcolor: '#163C6E' } }}
+             >
+                {loading ? <CircularProgress size={24} color="inherit" /> : "Recalculate"}
+             </Button>
+          </Stack>
+        </Box>
 
         {error && (
-          <Box sx={{ py: 5 }}>
-            <Alert severity="error">{error}</Alert>
-          </Box>
+          <Alert severity="error" sx={{ mb: 3 }}>
+            {error}
+          </Alert>
         )}
 
-        {!loading && !error && data && (
-          <Box>
-            {/* Section 1: Editable Assumptions */}
-            <Accordion
-               expanded={expanded === "panel2"}
-               onChange={handleChange("panel2")}
-               elevation={3}
-               sx={{ borderRadius: "12px", mb: 4 }}
-            >
-              <AccordionSummary
-                expandIcon={<ExpandMoreIcon />}
-                aria-controls="panel2-content"
-                id="panel2-header"
-              >
-                  <Typography variant="h6" sx={{ fontWeight: "bold" }}>
-                      Assumptions
-                  </Typography>
-              </AccordionSummary>
-              <AccordionDetails>
-                  <CorporateEditableTable 
-                     title="Assumptions"
-                     data={data.assumptions}
-                     sectionKey="assumptions"
-                     formData={formData}
-                     onInputChange={handleInputChange}
-                  />
-              </AccordionDetails>
-            </Accordion>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3, bgcolor: 'white', borderRadius: 1 }}>
+          <Tabs 
+            value={activeTab} 
+            onChange={handleTabChange} 
+            sx={{
+              '& .MuiTab-root': { textTransform: 'none', fontWeight: 500, fontSize: '0.95rem' },
+              '& .Mui-selected': { color: '#1976d2' }
+            }}
+          >
+            <Tab label="Assumptions" />
+            <Tab label="Calculations (LV1)" />
+            <Tab label="Extracted Parameters" />
+          </Tabs>
+        </Box>
 
-            {/* Section 2: Read-only Calculation Results */}
-            <Accordion
-               expanded={expanded === "panel1"}
-               onChange={handleChange("panel1")}
-               elevation={3}
-               sx={{ borderRadius: "12px", mb: 4 }}
-            >
-              <AccordionSummary
-                expandIcon={<ExpandMoreIcon />}
-                aria-controls="panel1-content"
-                id="panel1-header"
-              >
-                  <Typography variant="h6" sx={{ fontWeight: "bold" }}>
-                      Calculations (LV1)
-                  </Typography>
-              </AccordionSummary>
-              <AccordionDetails>
-                   <CorporateFinancialTableView 
-                      title="Calculations (LV1)"
-                      data={data.calculation_lv1}
-                   />
-              </AccordionDetails>
-            </Accordion>
+        <Paper elevation={0} sx={{ p: 3, borderRadius: 2 }}>
+          {loading && !data ? (
+             <Box sx={{ display: "flex", justifyContent: "center", py: 5 }}>
+                <CircularProgress />
+             </Box>
+          ) : !data ? (
+             <Typography variant="body1" sx={{ p: 2, textAlign: 'center', color: 'text.secondary' }}>
+                No data available. Please provide a valid Client ID.
+             </Typography>
+          ) : (
+            <>
+              {activeTab === 0 && (
+                 <CorporateEditableTable 
+                    title="Assumptions"
+                    data={data.assumptions || {}}
+                    sectionKey="assumptions"
+                    formData={formData}
+                    onInputChange={handleInputChange}
+                 />
+              )}
+              {activeTab === 1 && (
+                 <CorporateFinancialTableView 
+                    title="Calculations (LV1)"
+                    data={data.calculation_lv1 || {}}
+                 />
+              )}
+              {activeTab === 2 && (
+                 <CorporateEditableTable 
+                    title="Extracted Parameters"
+                    data={(data.extracted_param && data.extracted_param["IS-CON"]) || {}}
+                    sectionKey="extracted_param"
+                    formData={formData}
+                    onInputChange={handleInputChange}
+                 />
+              )}
+            </>
+          )}
+        </Paper>
 
-            {/* Section 3: Editable Extracted Parameters */}
-            <Accordion
-               expanded={expanded === "panel3"}
-               onChange={handleChange("panel3")}
-               elevation={3}
-               sx={{ borderRadius: "12px", mb: 4 }}
-            >
-              <AccordionSummary
-                expandIcon={<ExpandMoreIcon />}
-                aria-controls="panel3-content"
-                id="panel3-header"
-              >
-                  <Typography variant="h6" sx={{ fontWeight: "bold" }}>
-                      Extracted Parameters
-                  </Typography>
-              </AccordionSummary>
-              <AccordionDetails>
-                   <CorporateEditableTable 
-                     title="Extracted Parameters"
-                     data={data.extracted_param["IS-CON"]}
-                     sectionKey="extracted_param"
-                     formData={formData}
-                     onInputChange={handleInputChange}
-                   />
-              </AccordionDetails>
-            </Accordion>
-
-            <Box sx={{ textAlign: "center", mt: 4 }}>
-              <Button
-                variant="contained"
-                size="large"
-                sx={{
-                  borderRadius: "50px",
-                  px: 5,
-                  py: 1.5,
-                  fontWeight: "bold",
-                  backgroundColor: "#3f51b5",
-                  "&:hover": {
-                    backgroundColor: "#303f9f",
-                  },
-                }}
-                onClick={handleRecalculate}
-              >
-                Recalculate
-              </Button>
-            </Box>
-          </Box>
-        )}
-      </Container>
+      </Box>
     </ThemeProvider>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Box,
   Button,
@@ -12,9 +12,10 @@ import { ThemeProvider } from "@emotion/react";
 import LinkedinAITheme from "../LinkedinAI/style/LinkedinAITheme";
 import { apiUrl } from "./hooks/api";
 import CorporateFinancialTableView from "./utils/CorporateFinancialTableView";
+import { useSettings } from "./context/SettingsContext";
 
 const BSHistorical = () => {
-  const [clientId, setClientId] = useState("pwc-test-123456");
+  const { clientId, getCachedData, setCachedData } = useSettings();
   const [data, setData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -40,6 +41,7 @@ const BSHistorical = () => {
 
       const result = await response.json();
       setData(result);
+      setCachedData("bshistorical", clientId, result);
     } catch (err) {
       console.error("Fetch error:", err);
       setError(`Failed to fetch data: ${err.message}`);
@@ -47,6 +49,17 @@ const BSHistorical = () => {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (clientId) {
+      const cached = getCachedData("bshistorical", clientId);
+      if (cached) {
+        setData(cached);
+      } else {
+        fetchData();
+      }
+    }
+  }, [clientId]);
 
   const exportData = async () => {
     setError("");
@@ -110,29 +123,23 @@ const BSHistorical = () => {
         </Typography>
 
         <Box sx={{ display: "flex", gap: 2, mb: 4, justifyContent: "center" }}>
-          <TextField
-            label="Client ID"
-            variant="outlined"
-            size="small"
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-            sx={{ minWidth: 300 }}
-          />
           <Button
             variant="contained"
             onClick={fetchData}
             disabled={isLoading || !clientId}
+            sx={{ px: 4 }}
             startIcon={
               isLoading ? <CircularProgress size={20} color="inherit" /> : null
             }
           >
-            {isLoading ? "Loading..." : "Fetch Data"}
+            {isLoading ? "Loading..." : "Refresh Data"}
           </Button>
           <Button
             variant="contained"
             color="success"
             onClick={exportData}
             disabled={isExporting || !clientId}
+            sx={{ px: 4 }}
             startIcon={
               isExporting ? (
                 <CircularProgress size={20} color="inherit" />

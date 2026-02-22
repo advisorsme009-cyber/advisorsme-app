@@ -20,6 +20,7 @@ import { apiUrl } from "./hooks/api";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import DescriptionIcon from "@mui/icons-material/Description";
 import PersonIcon from "@mui/icons-material/Person";
+import { useSettings } from "./context/SettingsContext";
 
 // Create a theme override that fixes the transparent background issue
 const exportManagerTheme = createTheme({
@@ -34,7 +35,7 @@ const exportManagerTheme = createTheme({
 });
 
 const ExportManager = () => {
-  const [clientId, setClientId] = useState("");
+  const { clientId } = useSettings();
   const [splitSheets, setSplitSheets] = useState(false);
   const [isExportingYearByYear, setIsExportingYearByYear] = useState(false);
   const [isExportingHistorical, setIsExportingHistorical] = useState(false);
@@ -182,54 +183,6 @@ const ExportManager = () => {
             {error}
           </Alert>
         )}
-
-        {/* Client ID Input Card */}
-        <Card
-          elevation={3}
-          sx={{
-            mb: 4,
-            borderRadius: 2,
-            maxWidth: "100%",
-          }}
-        >
-          <CardContent>
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                mb: 2,
-              }}
-            >
-              <PersonIcon
-                sx={{ fontSize: 32, color: "primary.main", mr: 1 }}
-              />
-              <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                Client ID
-              </Typography>
-            </Box>
-            <Typography
-              variant="body2"
-              color="text.secondary"
-              sx={{ mb: 3 }}
-            >
-              Enter the client ID to enable export options
-            </Typography>
-            <TextField
-              label="Client ID"
-              variant="outlined"
-              fullWidth
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              placeholder="Enter client ID (e.g., icts)"
-              required
-              sx={{
-                "& .MuiOutlinedInput-root": {
-                  fontSize: "1.1rem",
-                },
-              }}
-            />
-          </CardContent>
-        </Card>
 
         <Grid container spacing={3}>
           {/* Year by Year Export Card */}

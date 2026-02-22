@@ -342,9 +342,10 @@ function Dashboard({ children }) {
               <List>
                 <ListItem disablePadding>
                   <ListItemButton
+                    onClick={() => navigate("/settings")}
                     sx={{
                       borderRadius: 2,
-                      color: sidebarColors.text,
+                      color: location.pathname === "/settings" ? sidebarColors.textActive : sidebarColors.text,
                       "&:hover": {
                         backgroundColor: "rgba(255,255,255, 0.1)",
                         color: sidebarColors.textActive,

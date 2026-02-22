@@ -28,6 +28,7 @@ import { Line, Bar, Doughnut, Pie } from 'react-chartjs-2';
 
 import LinkedinAITheme from '../LinkedinAI/style/LinkedinAITheme';
 import { apiUrl } from './hooks/api';
+import { useSettings } from './context/SettingsContext';
 
 // Register ChartJS components
 ChartJS.register(
@@ -147,7 +148,8 @@ const normalizeData = (data, isForecast, isIncomeStatement) => {
 
 const LEVEL3_CATEGORIES = ["S&M", "G&A", "FA", "debt", "WC", "EOSP", "equity"];
 
-const ReportGenerator = ({ clientId = "pwc-test-123456" }) => {
+const ReportGenerator = () => {
+  const { clientId, getCachedData, setCachedData } = useSettings();
   // Statement Type: 'IS' or 'BS'
   const [statementType, setStatementType] = useState('IS');
   
@@ -187,8 +189,22 @@ const ReportGenerator = ({ clientId = "pwc-test-123456" }) => {
   // --- Data Fetching ---
   useEffect(() => {
     const fetchData = async () => {
-        // If we have data for this combination, don't refetch
-        if (cache[statementType][viewMode]) return;
+        // Find in local cache or global setting cache
+        const globalCacheKey = `report_${statementType}_${viewMode}`;
+        const cachedData = getCachedData(globalCacheKey, clientId);
+
+        if (cache[statementType][viewMode] || cachedData) {
+            if (cachedData && !cache[statementType][viewMode]) {
+                 setCache(prev => ({
+                    ...prev,
+                    [statementType]: {
+                        ...prev[statementType],
+                        [viewMode]: cachedData
+                    }
+                }));
+            }
+            return;
+        }
 
         setIsLoading(true);
         setError("");
@@ -219,6 +235,8 @@ const ReportGenerator = ({ clientId = "pwc-test-123456" }) => {
             const json = await res.json();
             const normalized = normalizeData(json, isForecast, isIS);
 
+            setCachedData(globalCacheKey, clientId, normalized);
+
             setCache(prev => ({
                 ...prev,
                 [statementType]: {
@@ -243,8 +261,21 @@ const ReportGenerator = ({ clientId = "pwc-test-123456" }) => {
   const fetchLevel3Data = async (cat) => {
       if (!cat) return;
       
-      // key for cache: category + viewMode
-      if (level3Cache[cat]?.[viewMode]) return; // already cached
+      const globalKey = `report_lv3_${cat}_${viewMode}`;
+      const cachedLv3 = getCachedData(globalKey, clientId);
+
+      if (level3Cache[cat]?.[viewMode] || cachedLv3) {
+          if (cachedLv3 && !level3Cache[cat]?.[viewMode]) {
+             setLevel3Cache(prev => ({
+                  ...prev,
+                  [cat]: {
+                      ...prev[cat],
+                      [viewMode]: cachedLv3 
+                  }
+              }));
+          }
+          return; // already cached
+      }
 
       setIsLoadingLevel3(true);
       try {
@@ -301,6 +332,8 @@ const ReportGenerator = ({ clientId = "pwc-test-123456" }) => {
                      };
                 }
           });
+
+          setCachedData(globalKey, clientId, normalized);
 
           setLevel3Cache(prev => ({
               ...prev,

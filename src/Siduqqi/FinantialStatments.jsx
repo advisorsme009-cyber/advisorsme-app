@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Container,
   TextField,
@@ -16,6 +16,7 @@ import { createTheme, ThemeProvider } from "@mui/material/styles";
 import TablesUI from "./utils/TableView";
 import { apiUrl } from "./hooks/api";
 import ExcelDownloadButton from "./utils/ExportingTables";
+import { useSettings } from "./context/SettingsContext";
 
 const theme = createTheme({
   palette: {
@@ -54,7 +55,7 @@ const theme = createTheme({
 });
 
 const FinancialStatementComponent = () => {
-  const [clientId, setClientId] = useState("pwc-test-123456");
+  const { clientId, getCachedData, setCachedData } = useSettings();
   const [statementData, setStatementData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -79,6 +80,7 @@ const FinancialStatementComponent = () => {
 
       const data = await response.json();
       setStatementData(data);
+      setCachedData("statements", clientId, data);
       setSelectedTab(0); // Reset to the first tab on new data
     } catch (err) {
       setError(err.message);
@@ -86,6 +88,18 @@ const FinancialStatementComponent = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (clientId) {
+      const cached = getCachedData("statements", clientId);
+      if (cached) {
+        setStatementData(cached);
+        setSelectedTab(0);
+      } else {
+        handleFetchStatements();
+      }
+    }
+  }, [clientId]);
 
   const years = statementData
     ? Object.keys(statementData).sort((a, b) => b - a)
@@ -110,19 +124,7 @@ const FinancialStatementComponent = () => {
               Enter a Client ID to retrieve and view financial statements.
             </Typography>
           </Box>
-          <Box sx={{ display: "flex", gap: 2, alignItems: "center", mb: 4 }}>
-            <TextField
-              label="Client ID"
-              variant="outlined"
-              fullWidth
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              sx={{
-                "& .MuiOutlinedInput-root": {
-                  borderRadius: "10px",
-                },
-              }}
-            />
+          <Box sx={{ display: "flex", gap: 2, alignItems: "center", mb: 4, justifyContent: "center" }}>
             <Button
               variant="contained"
               onClick={handleFetchStatements}
@@ -131,9 +133,10 @@ const FinancialStatementComponent = () => {
                 height: "56px",
                 fontWeight: "bold",
                 borderRadius: "10px",
+                px: 4
               }}
             >
-              Fetch Statement Years
+              Refresh Data
             </Button>
           </Box>
           {loading && (

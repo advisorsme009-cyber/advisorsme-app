@@ -17,8 +17,10 @@ import { useNavigate } from 'react-router-dom';
 import LinkedinAITheme from '../LinkedinAI/style/LinkedinAITheme';
 import CorporateFinancialTableView from './utils/CorporateFinancialTableView';
 import { apiUrl } from './hooks/api';
+import { useSettings } from './context/SettingsContext';
 
-const FinancialSummaryTable = ({ clientId = "pwc-test-123456" }) => {
+const FinancialSummaryTable = () => {
+  const { clientId, getCachedData, setCachedData } = useSettings();
   const navigate = useNavigate();
   // 0: Income Statement, 1: Balance Sheet
   const [activeTab, setActiveTab] = useState(0); 
@@ -129,9 +131,20 @@ const FinancialSummaryTable = ({ clientId = "pwc-test-123456" }) => {
     const fetchData = async () => {
       const currentCategory = activeTab === 0 ? 'incomeStatement' : 'balanceSheet';
       
-      // Check if we already have data for the current category in cache
-      // We fetch BOTH Historical and Forecast for the category at once to allow smooth toggling
-      if (cache[currentCategory].historical && cache[currentCategory].forecast) {
+      const cachedHist = getCachedData(`fin_summary_${currentCategory}_hist`, clientId);
+      const cachedForecast = getCachedData(`fin_summary_${currentCategory}_forecast`, clientId);
+
+      // Check local or global cache
+      if ((cache[currentCategory].historical && cache[currentCategory].forecast) || (cachedHist && cachedForecast)) {
+        if (cachedHist && cachedForecast && !cache[currentCategory].historical) {
+          setCache(prev => ({
+            ...prev,
+            [currentCategory]: {
+              historical: cachedHist,
+              forecast: cachedForecast
+            }
+          }));
+        }
         return; // Already cached
       }
 
@@ -165,13 +178,19 @@ const FinancialSummaryTable = ({ clientId = "pwc-test-123456" }) => {
         const forecastJson = await forecastRes.json();
 
         console.log("FinancialSummaryTable Data Fetched:", { histJson, forecastJson });
+        
+        const histNorm = normalizeData(histJson, false, activeTab === 0);
+        const forecastNorm = normalizeData(forecastJson, true, activeTab === 0);
+
+        setCachedData(`fin_summary_${currentCategory}_hist`, clientId, histNorm);
+        setCachedData(`fin_summary_${currentCategory}_forecast`, clientId, forecastNorm);
 
         // Update cache
         setCache(prev => ({
           ...prev,
           [currentCategory]: {
-            historical: normalizeData(histJson, false, activeTab === 0),
-            forecast: normalizeData(forecastJson, true, activeTab === 0)
+            historical: histNorm,
+            forecast: forecastNorm
           }
         }));
 

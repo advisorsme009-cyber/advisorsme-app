@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Box,
   TextField,
@@ -10,12 +10,12 @@ import {
 import { apiUrl } from "./hooks/api";
 import ExportHistoricalButton from "./utils/ExportHistoricalButton";
 import StyledHtmlTable from "./utils/StyledHtmlTable";
+import { useSettings } from "./context/SettingsContext";
 
 
 
 const FinancialStatementsHistorical = () => {
-  // State to hold the client ID from the input field
-  const [clientId, setClientId] = useState("pwc-test-123456");
+  const { clientId, getCachedData, setCachedData } = useSettings();
   // State to hold the HTML content fetched from the API
   const [htmlContents, setHtmlContents] = useState([]);
   // State to manage the loading status
@@ -56,6 +56,7 @@ const FinancialStatementsHistorical = () => {
       // Check if the 'table_english' key exists and has content
       if (result) {
         setHtmlContents(result);
+        setCachedData("historical", clientId, result);
       } else {
         throw new Error("No historical table found in the response.");
       }
@@ -64,10 +65,20 @@ const FinancialStatementsHistorical = () => {
       console.error("Fetch error:", err);
       setError(`Failed to fetch data: ${err.message}`);
     } finally {
-      // Always set loading to false, regardless of success or failure
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (clientId) {
+      const cached = getCachedData("historical", clientId);
+      if (cached) {
+        setHtmlContents(cached);
+      } else {
+        fetchHistoricalData();
+      }
+    }
+  }, [clientId]);
 
   return (
     <Box
@@ -99,24 +110,17 @@ const FinancialStatementsHistorical = () => {
           Historical Statements
         </Typography>
 
-        <Box sx={{ display: "flex", gap: 2, mb: 3 }}>
-          <TextField
-            fullWidth
-            label="Enter Client ID"
-            variant="outlined"
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-          />
+        <Box sx={{ display: "flex", gap: 2, mb: 3, justifyContent: "center" }}>
           <Button
             variant="contained"
             onClick={fetchHistoricalData}
-            disabled={isLoading || clientId.length === 0}
-            sx={{ minWidth: "120px" }}
+            disabled={isLoading || !clientId}
+            sx={{ minWidth: "120px", px: 4 }}
           >
             {isLoading ? (
               <CircularProgress size={24} color="inherit" />
             ) : (
-              "Fetch Data"
+              "Refresh Data"
             )}
           </Button>
         </Box>

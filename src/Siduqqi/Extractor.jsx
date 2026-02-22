@@ -31,6 +31,7 @@ import { ExpandableMessageCard } from "./utils/ThinkingComponnet";
 import ExcelDownloadButton from "./utils/ExportingTables";
 import { apiUrl } from "./hooks/api";
 import LinkedinAITheme from "../LinkedinAI/style/LinkedinAITheme";
+import { useSettings } from "./context/SettingsContext";
 
 const TableExtractor = () => {
   const [file, setFile] = useState(null);
@@ -40,7 +41,7 @@ const TableExtractor = () => {
   const [pages, setPages] = useState([]);
   const [usage, setUsage] = useState(0);
   const [processed, setProcessed] = useState(1);
-  const [clientId, setClientId] = useState();
+  const { clientId } = useSettings();
   const [statementYear, setStatementYear] = useState();
 
   // Handle file input change & split into pages
@@ -183,17 +184,8 @@ const TableExtractor = () => {
                 fontWeight="bold"
                 gutterBottom
               >
-                Add Client
+                Add Statement Year
               </Typography>
-              <TextField
-                fullWidth
-                label="Client ID"
-                variant="outlined"
-                size="small"
-                value={clientId}
-                onChange={(e) => setClientId(e.target.value)}
-                sx={{ mb: 2 }}
-              />
               <TextField
                 fullWidth
                 label="Statement Year"

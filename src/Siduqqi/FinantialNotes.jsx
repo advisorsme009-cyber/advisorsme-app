@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Container,
   TextField,
@@ -15,6 +15,7 @@ import {
 import { createTheme, ThemeProvider } from "@mui/material/styles";
 import TablesUI from "./utils/TableView";
 import { apiUrl } from "./hooks/api";
+import { useSettings } from "./context/SettingsContext";
 
 const theme = createTheme({
   palette: {
@@ -58,7 +59,7 @@ function groupNotesByYear(arr) {
 }
 
 const FinancialStatementComponent = () => {
-  const [clientId, setClientId] = useState("pwc-test-123456");
+  const { clientId, getCachedData, setCachedData } = useSettings();
   const [year, setYear] = useState("2018");
   const [noteNumber, setNoteNumber] = useState("4");
 
@@ -97,6 +98,7 @@ const FinancialStatementComponent = () => {
       } else {
         const grouped = groupNotesByYear(data);
         setStatementData(grouped);
+        setCachedData(`notes_${year}_${noteNumber}`, clientId, grouped);
         setSelectedTab(0);
       }
     } catch (err) {
@@ -105,6 +107,18 @@ const FinancialStatementComponent = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (clientId && year && noteNumber) {
+      const cached = getCachedData(`notes_${year}_${noteNumber}`, clientId);
+      if (cached) {
+        setStatementData(cached);
+        setSelectedTab(0);
+      } else {
+        handleFetchNotes();
+      }
+    }
+  }, [clientId, year, noteNumber]);
 
   const years = statementData
     ? Object.keys(statementData).sort(
@@ -140,19 +154,13 @@ const FinancialStatementComponent = () => {
           <Box
             sx={{
               display: "grid",
-              gridTemplateColumns: { xs: "1fr", md: "1fr 160px 160px 220px" },
+              gridTemplateColumns: { xs: "1fr", md: "160px 160px 220px" },
               gap: 2,
               alignItems: "center",
+              justifyContent: "center",
               mb: 4,
             }}
           >
-            <TextField
-              label="Client ID"
-              variant="outlined"
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              sx={{ "& .MuiOutlinedInput-root": { borderRadius: "10px" } }}
-            />
             <TextField
               label="Year"
               variant="outlined"
@@ -179,7 +187,7 @@ const FinancialStatementComponent = () => {
               disabled={loading || !canFetch}
               sx={{ height: "56px", fontWeight: "bold", borderRadius: "10px" }}
             >
-              Fetch Note Tables
+              Refresh Note Tables
             </Button>
           </Box>
 

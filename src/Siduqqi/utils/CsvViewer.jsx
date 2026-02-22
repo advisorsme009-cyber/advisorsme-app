@@ -50,6 +50,7 @@ const CsvViewer = ({ csvString }) => {
 
     if (hasSecondHeader) {
       columns = header1.map((h, i) => {
+        if (i === 0) return "Metrics";
         const part1 = (h ?? "").toString().trim();
         const part2 = (header2[i] ?? "").toString().trim();
         if (part1 && part2) return `${part1} ${part2}`;
@@ -57,7 +58,7 @@ const CsvViewer = ({ csvString }) => {
       });
       body = data.slice(2);
     } else {
-      columns = header1.map((h, i) => h ?? `Column ${i + 1}`);
+      columns = header1.map((h, i) => (i === 0 ? "Metrics" : (h ?? `Column ${i + 1}`)));
       body = data.slice(1);
     }
 
@@ -98,7 +99,11 @@ const CsvViewer = ({ csvString }) => {
               {columns.map((_, ci) => (
                 <td
                   key={ci}
-                  style={CorporateTableTheme.bodyCell}
+                  style={
+                    ci === 0
+                      ? { ...CorporateTableTheme.bodyCell, textAlign: "left" }
+                      : CorporateTableTheme.bodyCell
+                  }
                 >
                   {formatCell(row[ci])}
                 </td>
