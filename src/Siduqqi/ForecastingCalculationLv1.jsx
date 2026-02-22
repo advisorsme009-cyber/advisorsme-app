@@ -1,25 +1,20 @@
 import React, { useState, useEffect } from "react";
 import {
   Container,
-  Grid,
-  Card,
-  CardContent,
-  CardHeader,
-  Typography,
-  TextField,
   Button,
   Box,
   CircularProgress,
   Alert,
-  Divider,
   Accordion,
   AccordionSummary,
   AccordionDetails,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import { ThemeProvider } from "@emotion/react";
+import { ThemeProvider } from "@mui/material/styles";
 import LinkedinAITheme from "../LinkedinAI/style/LinkedinAITheme";
 import { apiUrl } from "./hooks/api";
+import CorporateFinancialTableView from "./utils/CorporateFinancialTableView";
+import CorporateEditableTable from "./utils/CorporateEditableTable";
 
 // The main App component
 const ForecastingCalculationLv1 = () => {
@@ -27,15 +22,16 @@ const ForecastingCalculationLv1 = () => {
   const [formData, setFormData] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [expanded, setExpanded] = useState("panel1"); // State to manage which accordion is expanded
+  const [expanded, setExpanded] = useState("panel1");
 
   const API_BASE_URL = "http://127.0.0.1:8000";
   const CLIENT_ID = "pwc-test-123456";
 
-  // Function to handle accordion expansion
   const handleChange = (panel) => (event, isExpanded) => {
     setExpanded(isExpanded ? panel : false);
   };
+
+  // Function to fetch data from the API
 
   // Function to fetch data from the API
   const fetchData = async () => {
@@ -180,126 +176,6 @@ const ForecastingCalculationLv1 = () => {
     fetchData();
   }, []);
 
-  // Helper function to render a section of the data as read-only values
-  const renderCalculationSection = (title, sectionData, panelName) => (
-    <Accordion
-      expanded={expanded === panelName}
-      onChange={handleChange(panelName)}
-      elevation={3}
-      sx={{ borderRadius: "12px", mb: 4 }}
-    >
-      <AccordionSummary
-        expandIcon={<ExpandMoreIcon />}
-        aria-controls={`${panelName}-content`}
-        id={`${panelName}-header`}
-      >
-        <Typography variant="h6" sx={{ fontWeight: "bold" }}>
-          {title}
-        </Typography>
-      </AccordionSummary>
-      <AccordionDetails>
-        <Grid container spacing={2}>
-          {Object.entries(sectionData).map(([key, years]) => (
-            <Grid item xs={12} key={key}>
-              <Typography variant="body1" sx={{ fontWeight: "medium", mb: 1 }}>
-                {key}
-              </Typography>
-              <Grid container spacing={2}>
-                {Object.entries(years).map(([year, value]) => (
-                  <Grid item xs={6} sm={4} md={2.4} key={year}>
-                    <Typography
-                      variant="body2"
-                      color="textSecondary"
-                      sx={{ mb: 0.5 }}
-                    >
-                      {year}
-                    </Typography>
-                    <Box
-                      sx={{
-                        border: "1px solid #e0e0e0",
-                        borderRadius: "8px",
-                        p: 1.5,
-                        backgroundColor: "#f5f5f5",
-                        textAlign: "center",
-                      }}
-                    >
-                      <Typography
-                        variant="subtitle1"
-                        sx={{ fontWeight: "bold" }}
-                      >
-                        {typeof value === "number"
-                          ? `$${value.toFixed(2).toLocaleString()}`
-                          : "N/A"}
-                      </Typography>
-                    </Box>
-                  </Grid>
-                ))}
-              </Grid>
-              <Divider sx={{ my: 2 }} />
-            </Grid>
-          ))}
-        </Grid>
-      </AccordionDetails>
-    </Accordion>
-  );
-
-  // Helper function to render a section with editable text fields
-  const renderEditableSection = (title, sectionData, sectionKey, panelName) => (
-    <Accordion
-      expanded={expanded === panelName}
-      onChange={handleChange(panelName)}
-      elevation={3}
-      sx={{ borderRadius: "12px", mb: 4 }}
-    >
-      <AccordionSummary
-        expandIcon={<ExpandMoreIcon />}
-        aria-controls={`${panelName}-content`}
-        id={`${panelName}-header`}
-      >
-        <Typography variant="h6" sx={{ fontWeight: "bold" }}>
-          {title}
-        </Typography>
-      </AccordionSummary>
-      <AccordionDetails>
-        <Grid container spacing={3}>
-          {Object.entries(sectionData).map(([paramKey, param]) => (
-            <Grid item xs={12} key={paramKey}>
-              <Typography variant="body1" sx={{ fontWeight: "medium", mb: 2 }}>
-                {param.param_name}
-              </Typography>
-              <Grid container spacing={2}>
-                {Object.entries(param).map(
-                  ([year, value]) =>
-                    year !== "param_name" && (
-                      <Grid item xs={6} sm={4} md={2.4} key={year}>
-                        <TextField
-                          fullWidth
-                          label={year}
-                          type="number"
-                          name={`${sectionKey}.${paramKey}.${year}`}
-                          value={
-                            formData[`${sectionKey}.${paramKey}.${year}`] ?? ""
-                          }
-                          onChange={handleInputChange}
-                          variant="outlined"
-                          size="small"
-                          sx={{
-                            "& .MuiOutlinedInput-root": {
-                              borderRadius: "8px",
-                            },
-                          }}
-                        />
-                      </Grid>
-                    )
-                )}
-              </Grid>
-              <Divider sx={{ my: 2 }} />
-            </Grid>
-          ))}
-        </Grid>
-      </AccordionDetails>
-    </Accordion>
-  );
 
   return (
     <ThemeProvider theme={LinkedinAITheme}>
@@ -332,26 +208,82 @@ const ForecastingCalculationLv1 = () => {
         {!loading && !error && data && (
           <Box>
             {/* Section 1: Editable Assumptions */}
-            {renderEditableSection(
-              "Assumptions",
-              data.assumptions,
-              "assumptions",
-              "panel2"
-            )}
+            <Accordion
+               expanded={expanded === "panel2"}
+               onChange={handleChange("panel2")}
+               elevation={3}
+               sx={{ borderRadius: "12px", mb: 4 }}
+            >
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon />}
+                aria-controls="panel2-content"
+                id="panel2-header"
+              >
+                  <Typography variant="h6" sx={{ fontWeight: "bold" }}>
+                      Assumptions
+                  </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                  <CorporateEditableTable 
+                     title="Assumptions"
+                     data={data.assumptions}
+                     sectionKey="assumptions"
+                     formData={formData}
+                     onInputChange={handleInputChange}
+                  />
+              </AccordionDetails>
+            </Accordion>
+
             {/* Section 2: Read-only Calculation Results */}
-            {renderCalculationSection(
-              "Calculations (LV1)",
-              data.calculation_lv1,
-              "panel1"
-            )}
+            <Accordion
+               expanded={expanded === "panel1"}
+               onChange={handleChange("panel1")}
+               elevation={3}
+               sx={{ borderRadius: "12px", mb: 4 }}
+            >
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon />}
+                aria-controls="panel1-content"
+                id="panel1-header"
+              >
+                  <Typography variant="h6" sx={{ fontWeight: "bold" }}>
+                      Calculations (LV1)
+                  </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                   <CorporateFinancialTableView 
+                      title="Calculations (LV1)"
+                      data={data.calculation_lv1}
+                   />
+              </AccordionDetails>
+            </Accordion>
 
             {/* Section 3: Editable Extracted Parameters */}
-            {renderEditableSection(
-              "Extracted Parameters",
-              data.extracted_param["IS-CON"],
-              "extracted_param",
-              "panel3"
-            )}
+            <Accordion
+               expanded={expanded === "panel3"}
+               onChange={handleChange("panel3")}
+               elevation={3}
+               sx={{ borderRadius: "12px", mb: 4 }}
+            >
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon />}
+                aria-controls="panel3-content"
+                id="panel3-header"
+              >
+                  <Typography variant="h6" sx={{ fontWeight: "bold" }}>
+                      Extracted Parameters
+                  </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                   <CorporateEditableTable 
+                     title="Extracted Parameters"
+                     data={data.extracted_param["IS-CON"]}
+                     sectionKey="extracted_param"
+                     formData={formData}
+                     onInputChange={handleInputChange}
+                   />
+              </AccordionDetails>
+            </Accordion>
 
             <Box sx={{ textAlign: "center", mt: 4 }}>
               <Button

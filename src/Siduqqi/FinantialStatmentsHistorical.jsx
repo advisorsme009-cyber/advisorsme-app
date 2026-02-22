@@ -7,29 +7,11 @@ import {
   CircularProgress,
   Paper,
 } from "@mui/material";
-import { styled } from "@mui/system";
 import { apiUrl } from "./hooks/api";
 import ExportHistoricalButton from "./utils/ExportHistoricalButton";
+import StyledHtmlTable from "./utils/StyledHtmlTable";
 
-const StyledTableContainer = styled("div")({
-  "&, & *, & *::before, & *::after": {
-    color: "#000 !important",
-  },
-  "& table": {
-    borderCollapse: "collapse",
-    width: "100%",
-    marginBottom: "1rem",
-    fontSize: "0.9em",
-  },
-  "& th, & td": {
-    border: "1px solid #e2e8f0",
-    padding: "10px",
-    textAlign: "left",
-  },
-  "& tr:nth-of-type(even)": {
-    backgroundColor: "#f7fafc",
-  },
-});
+
 
 const FinancialStatementsHistorical = () => {
   // State to hold the client ID from the input field
@@ -162,9 +144,7 @@ const FinancialStatementsHistorical = () => {
           htmlContents.map((html, idx) => (
             <Box key={idx}>
               <Paper>
-                <StyledTableContainer sx={{ mt: 4 }}>
-                  <div dangerouslySetInnerHTML={{ __html: html.historical }} />
-                </StyledTableContainer>
+                <StyledHtmlTable html={html.historical} />
               </Paper>
             </Box>
           ))}

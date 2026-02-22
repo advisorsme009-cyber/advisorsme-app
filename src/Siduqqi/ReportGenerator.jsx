@@ -9,6 +9,7 @@ import {
   Alert,
   Grid
 } from '@mui/material';
+import MetricSelector from './MetricSelector';
 import { ThemeProvider } from '@mui/material/styles';
 import {
   Chart as ChartJS,
@@ -142,12 +143,19 @@ const normalizeData = (data, isForecast, isIncomeStatement) => {
 };
 
 
+
+
+const LEVEL3_CATEGORIES = ["S&M", "G&A", "FA", "debt", "WC", "EOSP", "equity"];
+
 const ReportGenerator = ({ clientId = "pwc-test-123456" }) => {
   // Statement Type: 'IS' or 'BS'
   const [statementType, setStatementType] = useState('IS');
   
   // View Mode: 'Historical' or 'Forecasted'
   const [viewMode, setViewMode] = useState('Historical');
+
+  // Custom Metrics State
+  const [selectedMetrics, setSelectedMetrics] = useState(['revenue', 'costOfRevenue']);
 
   // Request State
   const [isLoading, setIsLoading] = useState(false);
@@ -158,6 +166,23 @@ const ReportGenerator = ({ clientId = "pwc-test-123456" }) => {
     IS: { Historical: null, Forecasted: null },
     BS: { Historical: null, Forecasted: null }
   });
+
+  // Level 3 State
+  const [activeLevel, setActiveLevel] = useState('1');
+  const [level3Category, setLevel3Category] = useState(null);
+  const [level3Cache, setLevel3Cache] = useState({}); // { [category]: { Historical: ..., Forecasted: ... } }
+  const [isLoadingLevel3, setIsLoadingLevel3] = useState(false);
+
+  const handleToggleMetric = (metricKey) => {
+    setSelectedMetrics(prev => {
+        if (prev.includes(metricKey)) {
+            return prev.filter(k => k !== metricKey);
+        } else {
+            if (prev.length >= 3) return prev;
+            return [...prev, metricKey];
+        }
+    });
+  };
 
   // --- Data Fetching ---
   useEffect(() => {
@@ -214,15 +239,153 @@ const ReportGenerator = ({ clientId = "pwc-test-123456" }) => {
   }, [statementType, viewMode, clientId, cache]); // Depend on inputs
 
 
+  // --- Level 3 Data Fetching ---
+  const fetchLevel3Data = async (cat) => {
+      if (!cat) return;
+      
+      // key for cache: category + viewMode
+      if (level3Cache[cat]?.[viewMode]) return; // already cached
+
+      setIsLoadingLevel3(true);
+      try {
+          // Determine Endpoint
+          // Based on lv3Calculations.jsx logic
+          let url = "";
+          const docLower = cat.toLowerCase();
+          
+          // Helper to get base url
+          const getEndpointPath = (selectedDoc) => {
+            const normalized = (selectedDoc || "").toLowerCase();
+            if (normalized === "fa") return "fa";
+            if (normalized === "debt") return "debt";
+            if (normalized === "wc") return "wc";
+            return "sm_ga"; // default for S&M and G&A
+          };
+
+          const endpoint = getEndpointPath(cat);
+
+          // Construct URL
+          if (docLower === "wc") {
+             url = `${apiUrl}/calculation/lv3/WC/fetch/?client_id=${encodeURIComponent(clientId)}`;
+          } else if (docLower === "eosp" || docLower === "equity") {
+             const docPath = docLower === "eosp" ? "EOSP" : "equity";
+             url = `${apiUrl}/calculation/BS/lv3/${docPath}/fetch/?client_id=${encodeURIComponent(clientId)}`;
+          } else if (docLower === "s&m" || docLower === "g&a") {
+             url = `${apiUrl}/calculation/lv3/${endpoint}/fetch?client_id=${encodeURIComponent(clientId)}&document=${encodeURIComponent(cat)}`;
+          } else {
+             url = `${apiUrl}/calculation/lv3/${endpoint}/fetch?client_id=${encodeURIComponent(clientId)}`;
+          }
+
+          const res = await fetch(url, { headers: { Accept: "application/json" } });
+          if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+          const json = await res.json();
+          
+          // Normalize Level 3 Data
+          // Level 3 data has structure: { historical: {...}, forecasted: {...} }
+          // We need to extract based on viewMode
+          let rawDataForView = {};
+          if (viewMode === 'Forecasted') {
+              rawDataForView = json.forecasted || {};
+          } else {
+              rawDataForView = json.historical || {};
+          }
+
+          // We need to normalize this similarly to standard data for our charts
+          // Extract items that have param_name
+          const normalized = {};
+          Object.entries(rawDataForView).forEach(([key, value]) => {
+                if (key !== 'param_name' && value && typeof value === 'object' && value.param_name) {
+                     normalized[key] = {
+                         ...value,
+                         param_name: value.param_name
+                     };
+                }
+          });
+
+          setLevel3Cache(prev => ({
+              ...prev,
+              [cat]: {
+                  ...prev[cat],
+                  [viewMode]: normalized // Cache by view mode
+              }
+          }));
+
+      } catch (err) {
+          console.error("Level 3 Fetch Error:", err);
+          // Optional: show toast or error
+      } finally {
+          setIsLoadingLevel3(false);
+      }
+  };
+
+  // Effect to fetch when category changes (and we are in Level 3)
+  useEffect(() => {
+      if (activeLevel === '3' && level3Category) {
+          fetchLevel3Data(level3Category);
+      }
+  }, [activeLevel, level3Category, viewMode]);
+
+
+  // --- Chart Building Logic ---
+
+
   // --- Chart Building Logic ---
   const currentData = cache[statementType][viewMode];
+
+  // Derive available metrics for the dropdown
+  const availableMetrics = useMemo(() => {
+    // If Level 3, return metrics from the selected category
+    if (activeLevel === '3') {
+        if (!level3Category) return [];
+        const data = level3Cache[level3Category]?.[viewMode];
+        if (!data) return [];
+
+        return Object.entries(data)
+            .map(([key, value]) => ({
+                key: key,
+                label: value.param_name || key,
+                // store origin to help data retrieval later if needed, though we flatten data for chart
+                isLevel3: true,
+                category: level3Category
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+    }
+
+    // Default (Level 1/2/4 - currently leveraging main dataset for all non-3 levels as placeholder)
+    // PROMPT: "Consider for now only Level 1" was previous instruction, but now we have dynamic levels.
+    // For now, if Level 1, 2, 4, we use the main IS/BS data.
+    // Ideally Level 2/4 might have different API endpoints too? 
+    // Assuming for now Level 1/2/4 share the main dataset or are filtered by a property we don't have yet.
+    // User only specified Level 3 details. So we keep `currentData` for others.
+    
+    // FILTER: Only show metrics if activeLevel matches? 
+    // Since we don't have explicit "level" tags in `currentData`, we just return all for 1,2,4 
+    // OR we could try to filter if we knew how.
+    // Reverting to: logic used in previous step -> "matchLevel = activeLevel === '1'" was used inside MetricSelector.
+    // But now MetricSelector doesn't filter by level logic, WE pass the metrics.
+    
+    // For this step, if user selects Level 1, we show IS/BS data.
+    // If they select Level 4, we show IS/BS data (as before).
+    if (!currentData) return [];
+    return Object.entries(currentData)
+        .filter(([key, value]) => value && value.param_name)
+        .map(([key, value]) => ({
+            key: key,
+            label: value.param_name || key
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+
+  }, [currentData, activeLevel, level3Category, level3Cache, viewMode]);
 
   const charts = useMemo(() => {
     if (!currentData) return [];
     
     const recipes = CHART_RECIPES[statementType] || [];
-    
-    return recipes.map(recipe => {
+    const generatedCharts = [];
+
+    // 1. Custom Selected Chart logic moved to render/separate memo
+    // We strictly use this loop for standard recipes now
+    const standardCharts = recipes.map(recipe => {
         // Special handling for the Liquidity Gauge
         if (recipe.type === 'gauge_metric') {
              const assetsKey = recipe.keys[0]; // currentAssets
@@ -307,8 +470,59 @@ const ReportGenerator = ({ clientId = "pwc-test-123456" }) => {
             }
         };
 
-    });
+    }); // End of map
+
+    return standardCharts;
+
   }, [currentData, statementType, viewMode]);
+
+  // Prepare Custom Chart Data
+  const customChartData = useMemo(() => {
+     // Need access to both currentData and level3Cache
+     const findMetricData = (k) => {
+         if (currentData && currentData[k]) return currentData[k];
+         for (const cat of Object.keys(level3Cache)) {
+             const catData = level3Cache[cat]?.[viewMode];
+             if (catData && catData[k]) return catData[k];
+         }
+         return null;
+    };
+
+     if (selectedMetrics.length === 0) return null;
+     
+     const labels = [];
+     const validKey = selectedMetrics.find(k => findMetricData(k));
+     
+     if (validKey) {
+         const rawData = findMetricData(validKey);
+          Object.keys(rawData).forEach(k => {
+               if (/^\d{4}$/.test(k)) labels.push(k);
+           });
+          labels.sort();
+     }
+
+     const customDatasets = selectedMetrics.map((key, index) => {
+          const rawData = findMetricData(key) || {};
+          const dataPoints = labels.map(year => rawData[year] || 0);
+          const customColors = ["#8884d8", "#82ca9d", "#ffc658"];
+
+          return {
+             label: rawData.param_name || key,
+             data: dataPoints,
+             backgroundColor: customColors[index % customColors.length],
+             borderColor: customColors[index % customColors.length],
+             borderWidth: 2,
+             tension: 0.3,
+             fill: false
+          };
+     });
+     
+     return {
+         labels,
+         datasets: customDatasets
+     };
+
+  }, [currentData, selectedMetrics, level3Cache, viewMode]);
 
 
   // --- Render ---
@@ -336,6 +550,9 @@ const ReportGenerator = ({ clientId = "pwc-test-123456" }) => {
                         <Tab label="Balance Sheet" value="BS" />
                      </Tabs>
                 </Grid>
+                
+
+
                 <Grid item sx={{ flexGrow: 1 }} />
                 <Grid item>
                     {/* View Mode Tabs (Pill style) */}
@@ -364,8 +581,10 @@ const ReportGenerator = ({ clientId = "pwc-test-123456" }) => {
                         <Tab label="Forecasted" value="Forecasted" />
                      </Tabs>
                 </Grid>
+                
             </Grid>
         </Paper>
+
 
         {/* Content */}
         {isLoading && (
@@ -380,6 +599,45 @@ const ReportGenerator = ({ clientId = "pwc-test-123456" }) => {
 
         {!isLoading && !error && (
             <Grid container spacing={3}>
+                {/* Custom Analysis Card (Always Visible) */}
+                <Grid item xs={12}>
+                     <Paper elevation={0} sx={{ p: 3, borderRadius: 2, minHeight: '400px' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                            <Box>
+                                <Typography variant="h6" sx={{ fontSize: '1rem', fontWeight: 600 }}>
+                                    🔎 Custom Analysis
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    Compare specific metrics over time.
+                                </Typography>
+                            </Box>
+                            <Box>
+                                <MetricSelector 
+                                    metrics={availableMetrics}
+                                    selectedMetrics={selectedMetrics}
+                                    onToggleMetric={handleToggleMetric}
+                                    maxSelection={3}
+                                    // New Props
+                                    activeLevel={activeLevel}
+                                    onLevelChange={setActiveLevel}
+                                    level3Categories={LEVEL3_CATEGORIES}
+                                    selectedLevel3Category={level3Category}
+                                    onLevel3CategoryChange={setLevel3Category}
+                                    isLoadingLevel3={isLoadingLevel3}
+                                />
+                            </Box>
+                        </Box>
+                        
+                        <Box sx={{ height: '300px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                            {customChartData ? (
+                                <Line data={customChartData} options={{ maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }} />
+                            ) : (
+                                <Typography color="text.secondary">Select metrics from the top-right button to visualize data.</Typography>
+                            )}
+                        </Box>
+                     </Paper>
+                </Grid>
+
                 {charts.map((chart, i) => (
                     <Grid item xs={12} md={statementType === 'IS' && chart.id === 'main_performance' ? 12 : 6} key={i}>
                         <Paper elevation={0} sx={{ p: 3, borderRadius: 2, height: '100%', minHeight: '350px' }}>

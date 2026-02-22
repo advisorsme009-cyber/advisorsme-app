@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import * as Papa from "papaparse";
+import { CorporateTableTheme } from "./CorporateTableTheme";
 
 /**
  * CsvViewer component
@@ -75,27 +76,16 @@ const CsvViewer = ({ csvString }) => {
   };
 
   return (
-    <div>
+    <div style={CorporateTableTheme.container}>
       <table
-        style={{
-          borderCollapse: "collapse",
-          width: "100%",
-          color: "black",
-          border: "1px solid black",
-        }}
+        style={CorporateTableTheme.table}
       >
         <thead>
           <tr>
             {columns.map((col, i) => (
               <th
                 key={i}
-                style={{
-                  border: "1px solid black",
-                  padding: "8px",
-                  textAlign: "left",
-                  color: "black",
-                  fontWeight: "bold",
-                }}
+                style={CorporateTableTheme.headerCell}
               >
                 {col}
               </th>
@@ -104,15 +94,11 @@ const CsvViewer = ({ csvString }) => {
         </thead>
         <tbody>
           {rows.map((row, ri) => (
-            <tr key={ri}>
+            <tr key={ri} style={ri % 2 === 0 ? CorporateTableTheme.rowOdd : CorporateTableTheme.rowEven}>
               {columns.map((_, ci) => (
                 <td
                   key={ci}
-                  style={{
-                    border: "1px solid black",
-                    padding: "8px",
-                    color: "black",
-                  }}
+                  style={CorporateTableTheme.bodyCell}
                 >
                   {formatCell(row[ci])}
                 </td>

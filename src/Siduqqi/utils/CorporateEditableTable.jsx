@@ -1,26 +1,14 @@
 import React, { useMemo } from 'react';
+import { TextField } from '@mui/material';
 import { CorporateTableTheme } from './CorporateTableTheme';
-import { Tooltip, IconButton, Icon } from '@mui/material';
 
-const CorporateFinancialTableView = ({ 
+const CorporateEditableTable = ({ 
   data, 
-  title = "Key Highlights (SAR)",
-  formatNumber,
-  onReferenceClick
+  title, 
+  sectionKey, 
+  formData, 
+  onInputChange 
 }) => {
-
-  // Default number formatter
-  const defaultFormatNumber = (num) => {
-    if (num === null || num === undefined) return "—";
-    // Check if it's already a formatted string, otherwise format it
-    if (typeof num === 'string') return num;
-    return num.toLocaleString("en-US", {
-      minimumFractionDigits: 0, 
-      maximumFractionDigits: 0,
-    });
-  };
-
-  const formatter = formatNumber || defaultFormatNumber;
 
   // Process data to extract years and rows
   const { years, rows } = useMemo(() => {
@@ -43,10 +31,9 @@ const CorporateFinancialTableView = ({
       });
 
       processedRows.push({
-        key,
+        key, // e.g. "revenue_growth"
         label: metric.param_name || key,
         values: yearValues,
-        reference: metric.reference || null,
       });
     });
 
@@ -66,14 +53,13 @@ const CorporateFinancialTableView = ({
         <thead>
           <tr>
             <th style={CorporateTableTheme.mainHeader}>{title}</th>
-            {/* The gap is created by the border in CSS */}
             <th colSpan={years.length} style={{ ...CorporateTableTheme.mainHeader, textAlign: 'center', borderRadius: '0 4px 0 0' }}>
-              Actual
+              Inputs
             </th>
           </tr>
           {/* Sub Header (Years) */}
           <tr>
-            <th style={{ ...CorporateTableTheme.subHeader, borderBottom: '2px solid #fff' }}></th> {/* Empty corner cell */}
+            <th style={{ ...CorporateTableTheme.subHeader, borderBottom: '2px solid #fff' }}></th>
             {years.map((year, index) => (
               <th key={year} style={CorporateTableTheme.subHeader}>
                 {year}
@@ -86,27 +72,36 @@ const CorporateFinancialTableView = ({
         <tbody>
           {rows.map((row, index) => (
             <tr key={row.key} style={index % 2 === 0 ? CorporateTableTheme.rowOdd : CorporateTableTheme.rowEven}>
-              <td style={CorporateTableTheme.cellLabel}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>{row.label}</span>
-                  {row.reference?.doc && onReferenceClick && (
-                    <Tooltip title={`Open reference (Level ${row.reference.level || 3})`}>
-                      <IconButton
+              <td style={CorporateTableTheme.cellLabel}>{row.label}</td>
+              {years.map((year) => {
+                const fieldName = `${sectionKey}.${row.key}.${year}`;
+                const value = formData[fieldName] ?? "";
+
+                return (
+                  <td key={year} style={{ ...CorporateTableTheme.cellValue, padding: '8px' }}>
+                     <TextField
+                        fullWidth
+                        type="number"
+                        name={fieldName}
+                        value={value}
+                        onChange={onInputChange}
+                        variant="outlined"
                         size="small"
-                        onClick={() => onReferenceClick(row.reference.doc)}
-                        sx={{ ml: 1, padding: 0.5 }}
-                      >
-                         <Icon fontSize="small" sx={{ color: "#1F559B", fontSize: "1.2rem" }}>zoom_in</Icon>
-                      </IconButton>
-                    </Tooltip>
-                  )}
-                </div>
-              </td>
-              {years.map((year) => (
-                <td key={year} style={CorporateTableTheme.cellValue}>
-                  {formatter(row.values[year])}
-                </td>
-              ))}
+                        sx={{
+                            "& .MuiOutlinedInput-root": {
+                              backgroundColor: '#fff',
+                              borderRadius: "4px",
+                            },
+                             "& .MuiInputBase-input": {
+                                fontSize: '0.9rem',
+                                padding: '6px 10px',
+                                textAlign: 'center'
+                             }
+                        }}
+                    />
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>
@@ -115,4 +110,4 @@ const CorporateFinancialTableView = ({
   );
 };
 
-export default CorporateFinancialTableView;
+export default CorporateEditableTable;

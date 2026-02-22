@@ -67,6 +67,36 @@ const numberFmt = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 2,
 });
 
+const tableTheme = {
+  mainHeader: {
+    backgroundColor: '#1F559B',
+    color: '#ffffff',
+    fontWeight: 'bold',
+    borderRight: '1px solid rgba(255,255,255,0.1)',
+  },
+  subHeader: {
+    backgroundColor: '#ffffff',
+    color: '#333',
+    fontWeight: '600',
+    borderBottom: '2px solid #e0e0e0',
+    borderRight: '1px solid #f0f0f0',
+  },
+  rowOdd: { backgroundColor: '#F7FAFC' },
+  rowEven: { backgroundColor: '#ffffff' },
+  cellLabel: {
+    fontWeight: '600',
+    color: '#2d3748',
+    borderBottom: '1px solid #edf2f7',
+    borderRight: '1px solid #edf2f7',
+  },
+  cellValue: {
+    color: '#4a5568',
+    borderBottom: '1px solid #edf2f7',
+    borderRight: '1px solid #edf2f7',
+    fontVariantNumeric: 'tabular-nums',
+  }
+};
+
 // Extract nested param objects under a section (forecasted/historical), skipping top-level labels
 const extractParamItems = (sectionObj = {}) => {
   if (!sectionObj || typeof sectionObj !== "object") return [];
@@ -115,6 +145,9 @@ export default function Lv3Calculations() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [data, setData] = useState(null); // full server payload
+  const [kpiData, setKpiData] = useState(null); // kpi server payload
+  
+  const isKpiEligible = (doc || "").toLowerCase() === "s&m" || (doc || "").toLowerCase() === "g&a";
 
   // editable assumptions: { [paramKey]: { [year]: number } }
   const [assumptions, setAssumptions] = useState({});
@@ -228,6 +261,26 @@ export default function Lv3Calculations() {
       if (!res.ok) throw new Error(`Fetch failed (${res.status})`);
       const json = await res.json();
       setData(json);
+
+      if (docLower === "s&m" || docLower === "g&a") {
+        try {
+          const kpiUrl = `${apiUrl}/calculation/lv3/tables_kpis/fetch?client_id=${encodeURIComponent(
+            clientId
+          )}&document=${encodeURIComponent(doc)}`;
+          const kpiRes = await fetch(kpiUrl, { headers: { accept: "application/json" } });
+          if (kpiRes.ok) {
+            const kpiJson = await kpiRes.json();
+            setKpiData(kpiJson);
+          } else {
+            setKpiData(null);
+          }
+        } catch (e) {
+          console.error("Failed to fetch KPI data", e);
+          setKpiData(null);
+        }
+      } else {
+        setKpiData(null);
+      }
     } catch (e) {
       console.error(e);
       setError(e.message || "Failed to fetch data");
@@ -373,8 +426,56 @@ export default function Lv3Calculations() {
   };
 
   // Renderers --------------------------------------------------------
+  const KpiTable = ({ title, dataObj }) => {
+    if (!dataObj) return null;
+    let items = extractParamItems(dataObj);
+    const totalsItem = items.find(it => it.id === 'totals');
+    if (totalsItem) {
+      items = items.filter(it => it.id !== 'totals');
+      items.push(totalsItem);
+    }
+    const years = collectYears(items);
+
+    return (
+      <Paper sx={{ borderRadius: 2, overflow: 'hidden', mt: 3 }} elevation={0}>
+        <Table size="small" stickyHeader>
+          <TableHead>
+            <TableRow>
+              <TableCell sx={tableTheme.mainHeader}>{title}</TableCell>
+              <TableCell colSpan={years.length} align="center" sx={tableTheme.mainHeader}>
+                Data
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell sx={tableTheme.subHeader}>Parameter</TableCell>
+              {years.map((yr) => (
+                <TableCell key={yr} align="right" sx={tableTheme.subHeader}>{yr}</TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {items.map((it, idx) => (
+              <TableRow key={it.id} hover sx={idx % 2 === 0 ? tableTheme.rowOdd : tableTheme.rowEven}>
+                <TableCell sx={{ ...tableTheme.cellLabel, ...(it.id === 'totals' ? { fontWeight: 800 } : {}) }}>
+                  {it.param_name}
+                </TableCell>
+                {years.map((yr) => (
+                  <TableCell key={yr} align="right" sx={{ ...tableTheme.cellValue, ...(it.id === 'totals' ? { fontWeight: 800 } : {}) }}>
+                    {isYearKey(yr) && it[yr] !== undefined && it[yr] !== null
+                      ? numberFmt.format(it[yr])
+                      : "—"}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Paper>
+    );
+  };
+
   const renderToolbar = () => (
-    <Paper sx={{ p: 2, mb: 2 }} elevation={1}>
+    <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }} elevation={0}>
       <Stack
         direction={{ xs: "column", sm: "row" }}
         spacing={2}
@@ -425,37 +526,38 @@ export default function Lv3Calculations() {
   );
 
   const AssumptionsTable = () => (
-    <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>
-        Assumptions (editable)
-      </Typography>
+    <Paper sx={{ borderRadius: 2, overflow: 'hidden', mb: 3 }} elevation={0}>
       <Table size="small" stickyHeader>
         <TableHead>
           <TableRow>
-            <TableCell sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>
-              Parameter
+            <TableCell sx={tableTheme.mainHeader}>Assumptions (editable)</TableCell>
+            <TableCell sx={tableTheme.mainHeader}></TableCell>
+            <TableCell colSpan={assumptionYears.length} align="center" sx={tableTheme.mainHeader}>
+              Growth Assumptions (%)
             </TableCell>
-            <TableCell sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>
-              Base KPI
-            </TableCell>
+          </TableRow>
+          <TableRow>
+            <TableCell sx={tableTheme.subHeader}>Parameter</TableCell>
+            <TableCell sx={tableTheme.subHeader}>Base KPI</TableCell>
             {assumptionYears.map((yr) => (
-              <TableCell key={yr} align="right" sx={{ fontWeight: 700 }}>
+              <TableCell key={yr} align="right" sx={tableTheme.subHeader}>
                 {yr}
               </TableCell>
             ))}
           </TableRow>
         </TableHead>
         <TableBody>
-          {forecastItems.map((it) => (
-            <TableRow key={it.id} hover>
-              <TableCell sx={{ whiteSpace: "nowrap" }}>
+          {forecastItems.map((it, idx) => (
+            <TableRow key={it.id} hover sx={idx % 2 === 0 ? tableTheme.rowOdd : tableTheme.rowEven}>
+              <TableCell sx={tableTheme.cellLabel}>
                 {it.param_name}
               </TableCell>
-              <TableCell>
+              <TableCell sx={tableTheme.cellValue}>
                 <FormControl size="small" sx={{ minWidth: 120 }}>
                   <Select
                     value={baseKpis?.[it.id] ?? it.base_kpi ?? "YoY%"}
                     onChange={(e) => handleBaseKpiChange(it.id, e.target.value)}
+                    sx={{ backgroundColor: '#fff' }}
                   >
                     {["YoY%", "Sales%", "Sales", "COGS"].map((opt) => (
                       <MenuItem key={opt} value={opt}>
@@ -466,7 +568,7 @@ export default function Lv3Calculations() {
                 </FormControl>
               </TableCell>
               {assumptionYears.map((yr) => (
-                <TableCell key={yr} align="right">
+                <TableCell key={yr} align="right" sx={tableTheme.cellValue}>
                   <TextField
                     variant="outlined"
                     size="small"
@@ -478,9 +580,9 @@ export default function Lv3Calculations() {
                     inputProps={{
                       inputMode: "decimal",
                       pattern: "[0-9.-]*",
-                      style: { textAlign: "right" },
+                      style: { textAlign: "right", padding: "6px" },
                     }}
-                    sx={{ width: 110 }}
+                    sx={{ width: 110, '& .MuiOutlinedInput-root': { backgroundColor: '#fff' } }}
                     placeholder="0.00"
                   />
                 </TableCell>
@@ -489,83 +591,97 @@ export default function Lv3Calculations() {
           ))}
         </TableBody>
       </Table>
-      <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
-        <Button
-          variant="contained"
-          onClick={handleRecalculate}
-          disabled={!data || loading}
-        >
-          Recalculate
-        </Button>
-        <Button
-          variant="text"
-          onClick={() => {
-            // reset from original data
-            if (!data) return;
-            const next = {};
-            const nextBase = {};
-            extractParamItems(data.forecasted).forEach((it) => {
-              const ga = it.growth_assumption || {};
-              next[it.id] = {};
-              Object.keys(ga).forEach((yr) => {
-                if (isYearKey(yr)) {
-                  const val = ga[yr];
-                  // Store as string to allow free typing
-                  next[it.id][yr] =
-                    val === null || val === undefined || val === ""
-                      ? ""
-                      : String(val);
-                }
+      <Box sx={{ p: 2, bgcolor: 'white', borderTop: '1px solid #edf2f7' }}>
+        <Stack direction="row" spacing={1}>
+          <Button
+            variant="contained"
+            onClick={handleRecalculate}
+            disabled={!data || loading}
+            sx={{ bgcolor: '#1F559B', '&:hover': { bgcolor: '#163C6E' } }}
+          >
+            Recalculate
+          </Button>
+          <Button
+            variant="outlined"
+            onClick={() => {
+              // reset from original data
+              if (!data) return;
+              const next = {};
+              const nextBase = {};
+              extractParamItems(data.forecasted).forEach((it) => {
+                const ga = it.growth_assumption || {};
+                next[it.id] = {};
+                Object.keys(ga).forEach((yr) => {
+                  if (isYearKey(yr)) {
+                    const val = ga[yr];
+                    // Store as string to allow free typing
+                    next[it.id][yr] =
+                      val === null || val === undefined || val === ""
+                        ? ""
+                        : String(val);
+                  }
+                });
+                nextBase[it.id] = it.base_kpi || "YoY%";
               });
-              nextBase[it.id] = it.base_kpi || "YoY%";
-            });
-            setAssumptions(next);
-            setBaseKpis(nextBase);
-          }}
-          disabled={!data || loading}
-        >
-          Reset
-        </Button>
-      </Stack>
+              setAssumptions(next);
+              setBaseKpis(nextBase);
+            }}
+            disabled={!data || loading}
+            sx={{ color: '#1F559B', borderColor: '#1F559B' }}
+          >
+            Reset
+          </Button>
+        </Stack>
+      </Box>
     </Paper>
   );
 
   const ForecastTable = () => (
-    <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>
-        Forecasted
-      </Typography>
-      <Table size="small" stickyHeader>
-        <TableHead>
-          <TableRow>
-            <TableCell sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>
-              Parameter
-            </TableCell>
-            {forecastYears.map((yr) => (
-              <TableCell key={yr} align="right" sx={{ fontWeight: 700 }}>
-                {yr}
+    <Box>
+      <Paper sx={{ borderRadius: 2, overflow: 'hidden', mb: 3 }} elevation={0}>
+        <Table size="small" stickyHeader>
+          <TableHead>
+            <TableRow>
+              <TableCell sx={tableTheme.mainHeader}>Forecasted</TableCell>
+              <TableCell colSpan={forecastYears.length} align="center" sx={tableTheme.mainHeader}>
+                Actual / Forecast
               </TableCell>
-            ))}
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {forecastItems.map((it) => (
-            <TableRow key={it.id} hover>
-              <TableCell sx={{ whiteSpace: "nowrap" }}>
-                {it.param_name}
-              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell sx={tableTheme.subHeader}>Parameter</TableCell>
               {forecastYears.map((yr) => (
-                <TableCell key={yr} align="right">
-                  {isYearKey(yr) && it[yr] !== undefined
-                    ? numberFmt.format(it[yr])
-                    : "—"}
+                <TableCell key={yr} align="right" sx={tableTheme.subHeader}>
+                  {yr}
                 </TableCell>
               ))}
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </Paper>
+          </TableHead>
+          <TableBody>
+            {forecastItems.map((it, idx) => (
+              <TableRow key={it.id} hover sx={idx % 2 === 0 ? tableTheme.rowOdd : tableTheme.rowEven}>
+                <TableCell sx={tableTheme.cellLabel}>
+                  {it.param_name}
+                </TableCell>
+                {forecastYears.map((yr) => (
+                  <TableCell key={yr} align="right" sx={tableTheme.cellValue}>
+                    {isYearKey(yr) && it[yr] !== undefined
+                      ? numberFmt.format(it[yr])
+                      : "—"}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Paper>
+      {isKpiEligible && kpiData && (
+        <>
+          <KpiTable title="Revenue %" dataObj={kpiData["revenue_%"]?.forecasted} />
+          <KpiTable title="Annual Growth" dataObj={kpiData["annual_growth"]?.forecasted} />
+          <KpiTable title="Common Size" dataObj={kpiData["common_size"]?.forecasted} />
+        </>
+      )}
+    </Box>
   );
 
   const HistoricalTable = () => {
@@ -576,169 +692,181 @@ export default function Lv3Calculations() {
     );
 
     return (
-      <Paper sx={{ p: 2 }}>
-        <Typography variant="h6" gutterBottom>
-          Historical
-        </Typography>
-        <Table size="small" stickyHeader>
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>
-                Parameter
-              </TableCell>
-              {hasGrowthAssumptions && (
-                <TableCell sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>
-                  Base KPI
+      <Box>
+        <Paper sx={{ borderRadius: 2, overflow: 'hidden', mb: 3 }} elevation={0}>
+          <Table size="small" stickyHeader>
+            <TableHead>
+              <TableRow>
+                <TableCell sx={tableTheme.mainHeader}>Historical</TableCell>
+                {hasGrowthAssumptions && <TableCell sx={tableTheme.mainHeader}></TableCell>}
+                <TableCell colSpan={historicalYears.length} align="center" sx={tableTheme.mainHeader}>
+                  Actual
                 </TableCell>
-              )}
-              {historicalYears.map((yr) => (
-                <TableCell key={yr} align="right" sx={{ fontWeight: 700 }}>
-                  {yr}
-                </TableCell>
-              ))}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {/* First Group: Historical Values */}
-            {historicalItems.map((it) => (
-              <TableRow key={it.id} hover>
-                <TableCell sx={{ whiteSpace: "nowrap" }}>
-                  {it.param_name}
-                </TableCell>
-                {hasGrowthAssumptions && (
-                  <TableCell
-                    sx={{ whiteSpace: "nowrap", fontSize: "0.875rem" }}
-                  >
-                    {it.base_kpi || "—"}
-                  </TableCell>
-                )}
+              </TableRow>
+              <TableRow>
+                <TableCell sx={tableTheme.subHeader}>Parameter</TableCell>
+                {hasGrowthAssumptions && <TableCell sx={tableTheme.subHeader}>Base KPI</TableCell>}
                 {historicalYears.map((yr) => (
-                  <TableCell key={yr} align="right">
-                    {isYearKey(yr) && it[yr] !== undefined && it[yr] !== null
-                      ? numberFmt.format(it[yr])
-                      : "—"}
-                  </TableCell>
+                  <TableCell key={yr} align="right" sx={tableTheme.subHeader}>{yr}</TableCell>
                 ))}
               </TableRow>
-            ))}
+            </TableHead>
+            <TableBody>
+              {/* First Group: Historical Values */}
+              {historicalItems.map((it, idx) => (
+                <TableRow key={it.id} hover sx={idx % 2 === 0 ? tableTheme.rowOdd : tableTheme.rowEven}>
+                  <TableCell sx={tableTheme.cellLabel}>
+                    {it.param_name}
+                  </TableCell>
+                  {hasGrowthAssumptions && (
+                    <TableCell sx={{ ...tableTheme.cellValue, textAlign: "left" }}>
+                      {it.base_kpi || "—"}
+                    </TableCell>
+                  )}
+                  {historicalYears.map((yr) => (
+                    <TableCell key={yr} align="right" sx={tableTheme.cellValue}>
+                      {isYearKey(yr) && it[yr] !== undefined && it[yr] !== null
+                        ? numberFmt.format(it[yr])
+                        : "—"}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
 
-            {/* Divider Row */}
-            {hasGrowthAssumptions && (
-              <TableRow>
-                <TableCell
-                  colSpan={
-                    historicalYears.length + (hasGrowthAssumptions ? 2 : 1)
-                  }
-                  sx={{ py: 1 }}
-                >
-                  <Divider>
-                    <Typography variant="subtitle2" color="text.secondary">
+              {/* Divider Row */}
+              {hasGrowthAssumptions && (
+                <TableRow>
+                  <TableCell
+                    colSpan={
+                      historicalYears.length + (hasGrowthAssumptions ? 2 : 1)
+                    }
+                    sx={{ py: 1, backgroundColor: '#fff', borderBottom: '2px solid #edf2f7' }}
+                  >
+                    <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 600 }}>
                       Growth Assumptions (%)
                     </Typography>
-                  </Divider>
-                </TableCell>
-              </TableRow>
-            )}
+                  </TableCell>
+                </TableRow>
+              )}
 
-            {/* Second Group: Growth Assumptions */}
-            {hasGrowthAssumptions &&
-              historicalItems.map((it) => {
-                if (!it.growth_assumption) return null;
-                return (
-                  <TableRow
-                    key={`${it.id}-growth`}
-                    hover
-                    sx={{ backgroundColor: "action.hover" }}
-                  >
-                    <TableCell
-                      sx={{
-                        whiteSpace: "nowrap",
-                        fontStyle: "italic",
-                        fontSize: "0.875rem",
-                      }}
-                    >
-                      {it.param_name}
-                    </TableCell>
-                    {hasGrowthAssumptions && <TableCell />}
-                    {historicalYears.map((yr) => (
-                      <TableCell
-                        key={yr}
-                        align="right"
-                        sx={{ fontSize: "0.875rem" }}
-                      >
-                        {it.growth_assumption[yr] !== undefined &&
-                        it.growth_assumption[yr] !== null
-                          ? numberFmt.format(it.growth_assumption[yr])
-                          : "—"}
+              {/* Second Group: Growth Assumptions */}
+              {hasGrowthAssumptions &&
+                historicalItems.map((it, idx) => {
+                  if (!it.growth_assumption) return null;
+                  return (
+                    <TableRow key={`${it.id}-growth`} hover sx={idx % 2 === 0 ? tableTheme.rowOdd : tableTheme.rowEven}>
+                      <TableCell sx={{ ...tableTheme.cellLabel, fontStyle: "italic", fontSize: "0.875rem" }}>
+                        {it.param_name}
                       </TableCell>
-                    ))}
-                  </TableRow>
-                );
-              })}
-          </TableBody>
-        </Table>
-      </Paper>
+                      {hasGrowthAssumptions && <TableCell sx={tableTheme.cellValue}></TableCell>}
+                      {historicalYears.map((yr) => (
+                        <TableCell key={yr} align="right" sx={{ ...tableTheme.cellValue, fontSize: "0.875rem" }}>
+                          {it.growth_assumption[yr] !== undefined &&
+                          it.growth_assumption[yr] !== null
+                            ? numberFmt.format(it.growth_assumption[yr])
+                            : "—"}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  );
+                })}
+            </TableBody>
+          </Table>
+        </Paper>
+        {isKpiEligible && kpiData && (
+          <>
+            <KpiTable title="Revenue %" dataObj={kpiData["revenue_%"]?.historical} />
+            <KpiTable title="Annual Growth" dataObj={kpiData["annual_growth"]?.historical} />
+            <KpiTable title="Common Size" dataObj={kpiData["common_size"]?.historical} />
+          </>
+        )}
+      </Box>
     );
   };
 
   return (
     <ThemeProvider theme={LinkedinAITheme}>
-      <Box sx={{ p: { xs: 1, sm: 2 }, maxWidth: 1200, mx: "auto" }}>
-        <Typography variant="h5" sx={{ mb: 1, fontWeight: 700 }}>
-          Lv3 Calculations
-        </Typography>
-        <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
-          Enter a Client ID and pick a document to load data. If you opened this
-          page via a URL like
-          <code> /advisors/&lt;client_id&gt;/&lt;doc&gt; </code>, it will
-          auto-fetch.
-        </Typography>
+      <Box sx={{ width: '100%', p: 3, bgcolor: '#F5F6F8', minHeight: '100vh', boxSizing: 'border-box' }}>
+        <Box sx={{ maxWidth: 1200, mx: "auto" }}>
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="h5" sx={{ fontWeight: 500, color: '#333', mb: 1 }}>
+              Lv3 Calculations
+            </Typography>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              Enter a Client ID and pick a document to load data. If you opened this
+              page via a URL like
+              <code> /advisors/&lt;client_id&gt;/&lt;doc&gt; </code>, it will
+              auto-fetch.
+            </Typography>
+          </Box>
 
-        {renderToolbar()}
+          {renderToolbar()}
 
-        {loading && (
-          <Stack alignItems="center" sx={{ my: 4 }}>
-            <CircularProgress />
-          </Stack>
-        )}
+          {loading && (
+            <Stack alignItems="center" sx={{ my: 4 }}>
+              <CircularProgress />
+            </Stack>
+          )}
 
-        {data && !loading && (
-          <Paper elevation={0} sx={{ p: 0 }}>
-            {!data.forecasted && (
-              <Alert severity="info" sx={{ mb: 2 }}>
-                Forecasted data is not available for this document. Only
-                historical data is shown.
-              </Alert>
-            )}
+          {data && !loading && (
+            <Box>
+              {!data.forecasted && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Forecasted data is not available for this document. Only
+                  historical data is shown.
+                </Alert>
+              )}
 
-            {data.forecasted ? (
-              <>
-                <Tabs
-                  value={tab}
-                  onChange={(_, v) => setTab(v)}
-                  aria-label="lv3 views"
-                  sx={{ borderBottom: 1, borderColor: "divider" }}
-                >
-                  <Tab label="Assumptions" {...a11yProps(0)} />
-                  <Tab label="Forecast" {...a11yProps(1)} />
-                  <Tab label="Historical" {...a11yProps(2)} />
-                </Tabs>
+              {data.forecasted ? (
+                <>
+                  <Box sx={{ mb: 3 }}>
+                    <Tabs
+                      value={tab}
+                      onChange={(_, v) => setTab(v)}
+                      aria-label="lv3 views"
+                      sx={{
+                        minHeight: '36px',
+                        '& .MuiTab-root': {
+                          textTransform: 'none',
+                          fontWeight: 600,
+                          fontSize: '0.85rem',
+                          minHeight: '36px',
+                          padding: '6px 16px',
+                          borderRadius: '18px',
+                          marginRight: '8px',
+                          color: '#5e6c84',
+                          '&.Mui-selected': {
+                            color: '#fff',
+                            backgroundColor: '#1F559B',
+                          }
+                        },
+                        '& .MuiTabs-indicator': {
+                          display: 'none',
+                        }
+                      }}
+                    >
+                      <Tab label="Assumptions" {...a11yProps(0)} />
+                      <Tab label="Forecast" {...a11yProps(1)} />
+                      <Tab label="Historical" {...a11yProps(2)} />
+                    </Tabs>
+                  </Box>
 
-                <TabPanel value={tab} index={0}>
-                  <AssumptionsTable />
-                </TabPanel>
-                <TabPanel value={tab} index={1}>
-                  <ForecastTable />
-                </TabPanel>
-                <TabPanel value={tab} index={2}>
-                  <HistoricalTable />
-                </TabPanel>
-              </>
-            ) : (
-              <HistoricalTable />
-            )}
-          </Paper>
-        )}
+                  <TabPanel value={tab} index={0}>
+                    <AssumptionsTable />
+                  </TabPanel>
+                  <TabPanel value={tab} index={1}>
+                    <ForecastTable />
+                  </TabPanel>
+                  <TabPanel value={tab} index={2}>
+                    <HistoricalTable />
+                  </TabPanel>
+                </>
+              ) : (
+                <HistoricalTable />
+              )}
+            </Box>
+          )}
+        </Box>
 
         <Snackbar
           open={snack.open}

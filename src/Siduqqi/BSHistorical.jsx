@@ -11,7 +11,7 @@ import {
 import { ThemeProvider } from "@emotion/react";
 import LinkedinAITheme from "../LinkedinAI/style/LinkedinAITheme";
 import { apiUrl } from "./hooks/api";
-import FinancialTableView from "./utils/FinancialTableView";
+import CorporateFinancialTableView from "./utils/CorporateFinancialTableView";
 
 const BSHistorical = () => {
   const [clientId, setClientId] = useState("pwc-test-123456");
@@ -150,9 +150,9 @@ const BSHistorical = () => {
         )}
 
         {data && (
-          <FinancialTableView
+          <CorporateFinancialTableView
             data={data}
-            firstColumnLabel="Parameter"
+            title="Parameter"
             formatNumber={(n) => {
               if (n === null || n === undefined) return "—";
               return n.toLocaleString("en-US", {
