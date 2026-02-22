@@ -103,11 +103,50 @@ const IsConHistorical = () => {
           </Paper>
         )}
 
-        {data && (
-          <Paper elevation={0} sx={{ p: 3, borderRadius: 2 }}>
-             <CorporateFinancialTableView data={data} title="Metric" />
-          </Paper>
-        )}
+        {data && (() => {
+          const keys = Object.keys(data);
+          // Determine the split index roughly around where the KPI starts
+          const kpiStartIndex = keys.indexOf('salesGrowthYoY') !== -1 
+            ? keys.indexOf('salesGrowthYoY') 
+            : keys.indexOf('netIncomeLoss') + 1 || keys.length;
+
+          const table1Data = {};
+          const kpiData = {};
+          
+          keys.forEach((k, idx) => {
+            if (idx < kpiStartIndex) {
+              table1Data[k] = data[k];
+            } else {
+              kpiData[k] = data[k];
+            }
+          });
+
+          return (
+            <Stack spacing={4}>
+              <Paper elevation={0} sx={{ p: 3, borderRadius: 2 }}>
+                 <CorporateFinancialTableView data={table1Data} title="Metric" />
+              </Paper>
+              
+              {Object.keys(kpiData).length > 0 && (
+                <Paper elevation={0} sx={{ p: 3, borderRadius: 2 }}>
+                   <CorporateFinancialTableView 
+                      data={kpiData} 
+                      title="KPI Table" 
+                      formatNumber={(n) => {
+                        if (n === null || n === undefined || n === "") return "—";
+                        const num = Number(n);
+                        if (isNaN(num)) return n;
+                        return num.toLocaleString("en-US", {
+                          minimumFractionDigits: 1,
+                          maximumFractionDigits: 1,
+                        }) + "%";
+                      }}
+                   />
+                </Paper>
+              )}
+            </Stack>
+          );
+        })()}
 
       </Box>
     </ThemeProvider>
