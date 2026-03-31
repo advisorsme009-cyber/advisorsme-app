@@ -17,6 +17,8 @@ import BSForecasting from "./Siduqqi/BSForecasting";
 import ExportManager from "./Siduqqi/ExportManager";
 import FinancialSummaryTable from "./Siduqqi/FinancialSummaryTable";
 import ReportGenerator from "./Siduqqi/ReportGenerator";
+import HistoricalAIAgent from "./Siduqqi/HistoricalAIAgent";
+import FinancialModelPage from "./Siduqqi/FinancialModelPage";
 
 // Theme & Auth
 import LinkedinAITheme from "./LinkedinAI/style/LinkedinAITheme";
@@ -26,6 +28,7 @@ import AuthPage from "./Siduqqi/auth/AuthPage";
 import SignupPage from "./Siduqqi/auth/SignupPage";
 import Lv1Calculations from "./Siduqqi/lv1Calculations";
 import { SettingsProvider } from "./Siduqqi/context/SettingsContext";
+import { EngineProvider } from "./Siduqqi/context/EngineContext";
 import Settings from "./Siduqqi/Settings";
 
 function App() {
@@ -33,6 +36,7 @@ function App() {
     <ThemeProvider theme={LinkedinAITheme}>
       <AuthProvider>
         <SettingsProvider>
+          <EngineProvider>
           <Router>
             <Routes>
               <Route path="/auth" element={<AuthPage />} />
@@ -190,6 +194,28 @@ function App() {
               }
             />
 
+            <Route
+              path="/HistoricalAIAgent"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <HistoricalAIAgent />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/FinancialModel"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <FinancialModelPage />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
               <Route
                 path="/settings"
                 element={
@@ -202,6 +228,7 @@ function App() {
               />
             </Routes>
           </Router>
+          </EngineProvider>
         </SettingsProvider>
       </AuthProvider>
     </ThemeProvider>
