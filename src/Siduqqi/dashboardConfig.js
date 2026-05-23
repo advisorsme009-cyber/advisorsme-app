@@ -10,10 +10,31 @@ import {
   BarChart as BarChartIcon,
   SmartToy as SmartToyIcon,
   AccountBalance as AccountBalanceIcon,
+  TuneOutlined as TuneIcon,
+  AutoAwesome as AutoAwesomeIcon,
+  Bolt as BoltIcon,
 } from "@mui/icons-material";
 
 // Configurable dashboard items - edit this array to add/remove/hide items
 export const dashboardItems = [
+  {
+    key: "unified_pipeline",
+    title: "Run Pipeline",
+    description: "PDF → historical → forecast in one step",
+    path: "/Pipeline",
+    icon: AutoAwesomeIcon,
+    color: "#FF5622",
+    show: true,
+  },
+  {
+    key: "faster_engine",
+    title: "Faster Engine",
+    description: "Upload PDFs and get a formula-linked Excel model in 1–4 minutes",
+    path: "/FasterEngine",
+    icon: BoltIcon,
+    color: "#FFB300",
+    show: true,
+  },
   {
     key: "pdf_extractor",
     title: "PDF Extractor",
@@ -57,6 +78,15 @@ export const dashboardItems = [
     path: "/FinancialModel",
     icon: AccountBalanceIcon,
     color: "#1F559B",
+    show: true,
+  },
+  {
+    key: "assumptions_editor",
+    title: "Assumptions",
+    description: "Edit model drivers and auto-recalculate",
+    path: "/assumptions",
+    icon: TuneIcon,
+    color: "#0A1E37",
     show: true,
   },
   {

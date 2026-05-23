@@ -247,6 +247,44 @@ export const EngineProvider = ({ children }) => {
     }
   }, [clientId, loadAllResults, setCachedData]);
 
+  // --- Classify Line Item Driver ---
+  // Hits the specialized PATCH /engine/assumptions/{id}/classify-item endpoint
+  // which overrides a S&M / G&A line item's driver ("yoy_growth" |
+  // "pct_of_revenue" | "fixed") and triggers a full recalculate on the backend.
+  const classifyLineItem = useCallback(
+    async (module, item, driver) => {
+      if (!clientId) return;
+      setPatching(true);
+      setError(null);
+      try {
+        const res = await fetch(
+          `${apiUrl}/engine/assumptions/${encodeURIComponent(clientId)}/classify-item`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ module, item, driver }),
+          }
+        );
+        if (!res.ok) throw new Error(`Failed to classify line item (${res.status})`);
+        // Backend recalculates on this PATCH — refetch results + assumptions.
+        await loadAllResults(clientId);
+        const freshAssumptions = await fetch(
+          `${apiUrl}/engine/assumptions/${encodeURIComponent(clientId)}`
+        );
+        if (freshAssumptions.ok) {
+          const data = await freshAssumptions.json();
+          setAssumptions(data);
+          setCachedData("engine_assumptions", clientId, data);
+        }
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setPatching(false);
+      }
+    },
+    [clientId, loadAllResults, setCachedData]
+  );
+
   const queuePatch = useCallback(
     (path, value) => {
       // Accumulate into pending delta
@@ -315,6 +353,7 @@ export const EngineProvider = ({ children }) => {
         generateDefaults,
         queuePatch,
         flushPatch,
+        classifyLineItem,
         setError,
       }}
     >

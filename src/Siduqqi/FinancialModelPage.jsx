@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Box,
   Tabs,
@@ -9,17 +10,19 @@ import {
   Alert,
   Stack,
   Chip,
+  Snackbar,
 } from "@mui/material";
 import {
   TuneOutlined,
   RefreshOutlined,
   AutoFixHighOutlined,
+  FileDownloadOutlined,
 } from "@mui/icons-material";
 import { useEngine } from "./context/EngineContext";
 import { useSettings } from "./context/SettingsContext";
+import useEngineExport from "./hooks/useEngineExport";
 import CorporateFinancialTableView from "./utils/CorporateFinancialTableView";
 import { engineFormatNumber, engineFormatPercent } from "./utils/engineFormatNumber";
-import AssumptionsDrawer from "./AssumptionsDrawer";
 
 const MODULES = [
   { key: "IS-CON", label: "Income Statement" },
@@ -277,8 +280,24 @@ export default function FinancialModelPage() {
     setError,
   } = useEngine();
 
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(0);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [exportSnackbar, setExportSnackbar] = useState({ open: false, message: "" });
+  const { exportModule, exportAll, exporting, error: exportError, setError: setExportError } = useEngineExport();
+
+  const handleExportModule = async () => {
+    try {
+      await exportModule(clientId, currentModule.key);
+      setExportSnackbar({ open: true, message: `${currentModule.label} exported successfully!` });
+    } catch { /* hook sets error */ }
+  };
+
+  const handleExportAll = async () => {
+    try {
+      await exportAll(clientId);
+      setExportSnackbar({ open: true, message: "All modules exported successfully!" });
+    } catch { /* hook sets error */ }
+  };
 
   const currentModule = MODULES[activeTab];
   const moduleData = results?.[currentModule.key];
@@ -353,9 +372,39 @@ export default function FinancialModelPage() {
             Refresh
           </Button>
           <Button
+            variant="outlined"
+            startIcon={
+              exporting === currentModule.key ? (
+                <CircularProgress size={14} />
+              ) : (
+                <FileDownloadOutlined />
+              )
+            }
+            onClick={handleExportModule}
+            disabled={!!exporting || !results}
+            size="small"
+          >
+            Export {currentModule.label}
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={
+              exporting === "all" ? (
+                <CircularProgress size={14} />
+              ) : (
+                <FileDownloadOutlined />
+              )
+            }
+            onClick={handleExportAll}
+            disabled={!!exporting || !results}
+            size="small"
+          >
+            Export All
+          </Button>
+          <Button
             variant="contained"
             startIcon={<TuneOutlined />}
-            onClick={() => setDrawerOpen(true)}
+            onClick={() => navigate("/assumptions")}
             size="small"
             sx={{ backgroundColor: "#1F559B" }}
           >
@@ -472,10 +521,19 @@ export default function FinancialModelPage() {
         </Alert>
       )}
 
-      {/* Assumptions Drawer */}
-      <AssumptionsDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
+      {/* Export error */}
+      {exportError && (
+        <Alert severity="error" sx={{ mt: 2 }} onClose={() => setExportError(null)}>
+          Export failed: {exportError}
+        </Alert>
+      )}
+
+      <Snackbar
+        open={exportSnackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setExportSnackbar({ open: false, message: "" })}
+        message={exportSnackbar.message}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       />
     </Box>
   );

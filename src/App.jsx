@@ -19,6 +19,9 @@ import FinancialSummaryTable from "./Siduqqi/FinancialSummaryTable";
 import ReportGenerator from "./Siduqqi/ReportGenerator";
 import HistoricalAIAgent from "./Siduqqi/HistoricalAIAgent";
 import FinancialModelPage from "./Siduqqi/FinancialModelPage";
+import AssumptionsPage from "./Siduqqi/AssumptionsPage";
+import PipelineRunner from "./Siduqqi/PipelineRunner";
+import FasterEnginePage from "./Siduqqi/FasterEnginePage";
 
 // Theme & Auth
 import LinkedinAITheme from "./LinkedinAI/style/LinkedinAITheme";
@@ -79,6 +82,28 @@ function App() {
                 <RequireAuth>
                   <Dashboard>
                     <FinancialStatementUploader />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/Pipeline"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <PipelineRunner />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/FasterEngine"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <FasterEnginePage />
                   </Dashboard>
                 </RequireAuth>
               }
@@ -211,6 +236,17 @@ function App() {
                 <RequireAuth>
                   <Dashboard>
                     <FinancialModelPage />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/assumptions"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <AssumptionsPage />
                   </Dashboard>
                 </RequireAuth>
               }

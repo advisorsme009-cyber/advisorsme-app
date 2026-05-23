@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -27,8 +27,8 @@ import {
 import { Line, Bar, Doughnut, Pie } from 'react-chartjs-2';
 
 import LinkedinAITheme from '../LinkedinAI/style/LinkedinAITheme';
-import { apiUrl } from './hooks/api';
 import { useSettings } from './context/SettingsContext';
+import { useEngine } from './context/EngineContext';
 
 // Register ChartJS components
 ChartJS.register(
@@ -60,7 +60,7 @@ const CHART_RECIPES = {
       id: "expense_breakdown",
       title: "💸 Where is the Money Going?",
       type: "doughnut", // Using Doughnut as "Pie of Pain"
-      keys: ["costOfRevenue", "sellingMarketingExpenses", "generalAdminExpensesAdj"],
+      keys: ["costOfRevenue", "sellingMarketingExpenses", "generalAdminExpenses"],
       colors: ["#FF6347", "#FFA07A", "#CD5C5C"], // Shades of Red
       description: "Breakdown of costs and spending."
     },
@@ -89,91 +89,71 @@ const CHART_RECIPES = {
       id: "liquidity_gauge",
       title: "💧 Liquidity Check",
       type: "gauge_metric", // Custom type to handle separately
-      keys: ["currentAssets", "currentLiabilities"],
+      keys: ["totalCurrentAssets", "totalCurrentLiabilities"],
       description: "Current Ratio (Assets / Liabilities)"
     }
   ]
 };
 
-// --- DATA NORMALIZATION HELPERS (Adapted from FinancialSummaryTable) ---
-const normalizeData = (data, isForecast, isIncomeStatement) => {
-    if (!data) return {};
-    const normalized = {};
+// --- ENGINE DATA HELPERS ---
 
-    // 1. IS Forecast (ForecastingCalculationLv1) has special structure
-    if (isIncomeStatement && isForecast) {
-       const extracted = data.extracted_param?.["IS-CON"] || {};
-       const calculated = data.calculation_lv1 || {};
-       
-       const merge = (source) => {
-           Object.entries(source).forEach(([key, value]) => {
-                if (!normalized[key]) {
-                    normalized[key] = {
-                        param_name: value.param_name || key,
-                        ...value
-                    };
-                } else {
-                    Object.entries(value).forEach(([k, v]) => {
-                        if (/^\d{4}$/.test(k)) normalized[key][k] = v;
-                    });
-                }
-           });
-       };
+// Map statement type tab to engine module key
+const STATEMENT_TO_MODULE = { IS: "IS-CON", BS: "BS" };
 
-       merge(extracted);
-       merge(calculated);
-       
-       if (Object.keys(normalized).length > 0) return normalized;
-    }
-
-    // 2. Standard Structure
-    Object.entries(data).forEach(([key, value]) => {
-        if (!normalized[key]) {
-            normalized[key] = {
-                param_name: value.param_name || key,
-                ...value 
-            };
-        } else {
-            Object.entries(value).forEach(([k, v]) => {
-                 if (/^\d{4}$/.test(k)) normalized[key][k] = v;
-             });
-        }
+// Merge _analytics into module data so chart recipes can reference analytics keys
+function prepareModuleData(moduleResults) {
+  if (!moduleResults) return null;
+  const data = { ...moduleResults };
+  if (data._analytics) {
+    Object.entries(data._analytics).forEach(([key, value]) => {
+      if (!data[key]) data[key] = value;
     });
+    delete data._analytics;
+  }
+  return data;
+}
 
-    return normalized;
-};
+// Filter data to only include years matching the viewMode
+function filterByViewMode(data, forecastStartYear, viewMode) {
+  if (!data || !forecastStartYear || viewMode === "All") return data;
+  const filtered = {};
+  Object.entries(data).forEach(([key, metric]) => {
+    if (!metric || typeof metric !== "object") return;
+    const newMetric = {};
+    Object.entries(metric).forEach(([k, v]) => {
+      if (/^\d{4}$/.test(k)) {
+        const yr = Number(k);
+        if (viewMode === "Historical" && yr < forecastStartYear) newMetric[k] = v;
+        else if (viewMode === "Forecasted" && yr >= forecastStartYear) newMetric[k] = v;
+      } else {
+        newMetric[k] = v;
+      }
+    });
+    filtered[key] = newMetric;
+  });
+  return filtered;
+}
 
-
-
-
-const LEVEL3_CATEGORIES = ["S&M", "G&A", "FA", "debt", "WC", "EOSP", "equity"];
+const LEVEL3_CATEGORIES = ["S&M", "G&A", "FA", "WC", "DEBT", "eosp", "equity"];
 
 const ReportGenerator = () => {
-  const { clientId, getCachedData, setCachedData } = useSettings();
+  const { clientId } = useSettings();
+  const { results, assumptions, loading: isLoading, error: engineError } = useEngine();
+
   // Statement Type: 'IS' or 'BS'
   const [statementType, setStatementType] = useState('IS');
-  
-  // View Mode: 'Historical' or 'Forecasted'
-  const [viewMode, setViewMode] = useState('Historical');
+
+  // View Mode: 'Historical', 'Forecasted', or 'All'
+  const [viewMode, setViewMode] = useState('All');
 
   // Custom Metrics State
   const [selectedMetrics, setSelectedMetrics] = useState(['revenue', 'costOfRevenue']);
 
-  // Request State
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
-  
-  // Data Cache
-  const [cache, setCache] = useState({
-    IS: { Historical: null, Forecasted: null },
-    BS: { Historical: null, Forecasted: null }
-  });
-
   // Level 3 State
   const [activeLevel, setActiveLevel] = useState('1');
   const [level3Category, setLevel3Category] = useState(null);
-  const [level3Cache, setLevel3Cache] = useState({}); // { [category]: { Historical: ..., Forecasted: ... } }
-  const [isLoadingLevel3, setIsLoadingLevel3] = useState(false);
+
+  const error = engineError || "";
 
   const handleToggleMetric = (metricKey) => {
     setSelectedMetrics(prev => {
@@ -186,229 +166,57 @@ const ReportGenerator = () => {
     });
   };
 
-  // --- Data Fetching ---
-  useEffect(() => {
-    const fetchData = async () => {
-        // Find in local cache or global setting cache
-        const globalCacheKey = `report_${statementType}_${viewMode}`;
-        const cachedData = getCachedData(globalCacheKey, clientId);
+  // Determine forecast start year from assumptions
+  const forecastStartYear = assumptions?.general?.reporting_date
+    ? assumptions.general.reporting_date + 1
+    : undefined;
 
-        if (cache[statementType][viewMode] || cachedData) {
-            if (cachedData && !cache[statementType][viewMode]) {
-                 setCache(prev => ({
-                    ...prev,
-                    [statementType]: {
-                        ...prev[statementType],
-                        [viewMode]: cachedData
-                    }
-                }));
-            }
-            return;
-        }
+  // --- Prepare data from engine results ---
+  const moduleKey = STATEMENT_TO_MODULE[statementType];
+  const rawModuleData = useMemo(
+    () => prepareModuleData(results?.[moduleKey]),
+    [results, moduleKey]
+  );
+  const currentData = useMemo(
+    () => filterByViewMode(rawModuleData, forecastStartYear, viewMode),
+    [rawModuleData, forecastStartYear, viewMode]
+  );
 
-        setIsLoading(true);
-        setError("");
-
-        try {
-            let url = "";
-            const isIS = statementType === 'IS';
-            const isForecast = viewMode === 'Forecasted';
-
-            if (isIS) {
-                if (!isForecast) {
-                    url = `${apiUrl}/calculation/PL/fetch/${clientId}`;
-                } else {
-                    url = `${apiUrl}/calculation/lv1/fetch?client_id=${clientId}`;
-                }
-            } else {
-                // BS
-                 if (!isForecast) {
-                    url = `${apiUrl}/calculation/BS/historical/lv1/fetch/?client_id=${encodeURIComponent(clientId)}`;
-                } else {
-                    url = `${apiUrl}/calculation/BS/forecasting/lv1/fetch/?client_id=${encodeURIComponent(clientId)}`;
-                }
-            }
-
-            const res = await fetch(url, { headers: { Accept: "application/json" } });
-            if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-            
-            const json = await res.json();
-            const normalized = normalizeData(json, isForecast, isIS);
-
-            setCachedData(globalCacheKey, clientId, normalized);
-
-            setCache(prev => ({
-                ...prev,
-                [statementType]: {
-                    ...prev[statementType],
-                    [viewMode]: normalized
-                }
-            }));
-
-        } catch (err) {
-            console.error(err);
-            setError(err.message);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    if (clientId) fetchData();
-  }, [statementType, viewMode, clientId, cache]); // Depend on inputs
-
-
-  // --- Level 3 Data Fetching ---
-  const fetchLevel3Data = async (cat) => {
-      if (!cat) return;
-      
-      const globalKey = `report_lv3_${cat}_${viewMode}`;
-      const cachedLv3 = getCachedData(globalKey, clientId);
-
-      if (level3Cache[cat]?.[viewMode] || cachedLv3) {
-          if (cachedLv3 && !level3Cache[cat]?.[viewMode]) {
-             setLevel3Cache(prev => ({
-                  ...prev,
-                  [cat]: {
-                      ...prev[cat],
-                      [viewMode]: cachedLv3 
-                  }
-              }));
-          }
-          return; // already cached
-      }
-
-      setIsLoadingLevel3(true);
-      try {
-          // Determine Endpoint
-          // Based on lv3Calculations.jsx logic
-          let url = "";
-          const docLower = cat.toLowerCase();
-          
-          // Helper to get base url
-          const getEndpointPath = (selectedDoc) => {
-            const normalized = (selectedDoc || "").toLowerCase();
-            if (normalized === "fa") return "fa";
-            if (normalized === "debt") return "debt";
-            if (normalized === "wc") return "wc";
-            return "sm_ga"; // default for S&M and G&A
-          };
-
-          const endpoint = getEndpointPath(cat);
-
-          // Construct URL
-          if (docLower === "wc") {
-             url = `${apiUrl}/calculation/lv3/WC/fetch/?client_id=${encodeURIComponent(clientId)}`;
-          } else if (docLower === "eosp" || docLower === "equity") {
-             const docPath = docLower === "eosp" ? "EOSP" : "equity";
-             url = `${apiUrl}/calculation/BS/lv3/${docPath}/fetch/?client_id=${encodeURIComponent(clientId)}`;
-          } else if (docLower === "s&m" || docLower === "g&a") {
-             url = `${apiUrl}/calculation/lv3/${endpoint}/fetch?client_id=${encodeURIComponent(clientId)}&document=${encodeURIComponent(cat)}`;
-          } else {
-             url = `${apiUrl}/calculation/lv3/${endpoint}/fetch?client_id=${encodeURIComponent(clientId)}`;
-          }
-
-          const res = await fetch(url, { headers: { Accept: "application/json" } });
-          if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-          const json = await res.json();
-          
-          // Normalize Level 3 Data
-          // Level 3 data has structure: { historical: {...}, forecasted: {...} }
-          // We need to extract based on viewMode
-          let rawDataForView = {};
-          if (viewMode === 'Forecasted') {
-              rawDataForView = json.forecasted || {};
-          } else {
-              rawDataForView = json.historical || {};
-          }
-
-          // We need to normalize this similarly to standard data for our charts
-          // Extract items that have param_name
-          const normalized = {};
-          Object.entries(rawDataForView).forEach(([key, value]) => {
-                if (key !== 'param_name' && value && typeof value === 'object' && value.param_name) {
-                     normalized[key] = {
-                         ...value,
-                         param_name: value.param_name
-                     };
-                }
-          });
-
-          setCachedData(globalKey, clientId, normalized);
-
-          setLevel3Cache(prev => ({
-              ...prev,
-              [cat]: {
-                  ...prev[cat],
-                  [viewMode]: normalized // Cache by view mode
-              }
-          }));
-
-      } catch (err) {
-          console.error("Level 3 Fetch Error:", err);
-          // Optional: show toast or error
-      } finally {
-          setIsLoadingLevel3(false);
-      }
-  };
-
-  // Effect to fetch when category changes (and we are in Level 3)
-  useEffect(() => {
-      if (activeLevel === '3' && level3Category) {
-          fetchLevel3Data(level3Category);
-      }
-  }, [activeLevel, level3Category, viewMode]);
-
-
-  // --- Chart Building Logic ---
-
-
-  // --- Chart Building Logic ---
-  const currentData = cache[statementType][viewMode];
+  // Level 3 data comes directly from engine results
+  const level3DataForCategory = useMemo(() => {
+    if (!level3Category || !results?.[level3Category]) return null;
+    const prepared = prepareModuleData(results[level3Category]);
+    return filterByViewMode(prepared, forecastStartYear, viewMode);
+  }, [results, level3Category, forecastStartYear, viewMode]);
 
   // Derive available metrics for the dropdown
   const availableMetrics = useMemo(() => {
     // If Level 3, return metrics from the selected category
     if (activeLevel === '3') {
-        if (!level3Category) return [];
-        const data = level3Cache[level3Category]?.[viewMode];
-        if (!data) return [];
+        if (!level3Category || !level3DataForCategory) return [];
 
-        return Object.entries(data)
+        return Object.entries(level3DataForCategory)
+            .filter(([, value]) => value && value.param_name)
             .map(([key, value]) => ({
                 key: key,
                 label: value.param_name || key,
-                // store origin to help data retrieval later if needed, though we flatten data for chart
                 isLevel3: true,
                 category: level3Category
             }))
             .sort((a, b) => a.label.localeCompare(b.label));
     }
 
-    // Default (Level 1/2/4 - currently leveraging main dataset for all non-3 levels as placeholder)
-    // PROMPT: "Consider for now only Level 1" was previous instruction, but now we have dynamic levels.
-    // For now, if Level 1, 2, 4, we use the main IS/BS data.
-    // Ideally Level 2/4 might have different API endpoints too? 
-    // Assuming for now Level 1/2/4 share the main dataset or are filtered by a property we don't have yet.
-    // User only specified Level 3 details. So we keep `currentData` for others.
-    
-    // FILTER: Only show metrics if activeLevel matches? 
-    // Since we don't have explicit "level" tags in `currentData`, we just return all for 1,2,4 
-    // OR we could try to filter if we knew how.
-    // Reverting to: logic used in previous step -> "matchLevel = activeLevel === '1'" was used inside MetricSelector.
-    // But now MetricSelector doesn't filter by level logic, WE pass the metrics.
-    
-    // For this step, if user selects Level 1, we show IS/BS data.
-    // If they select Level 4, we show IS/BS data (as before).
+    // Level 1/2/4 use the main IS/BS module data
     if (!currentData) return [];
     return Object.entries(currentData)
-        .filter(([key, value]) => value && value.param_name)
+        .filter(([, value]) => value && value.param_name)
         .map(([key, value]) => ({
             key: key,
             label: value.param_name || key
         }))
         .sort((a, b) => a.label.localeCompare(b.label));
 
-  }, [currentData, activeLevel, level3Category, level3Cache, viewMode]);
+  }, [currentData, activeLevel, level3Category, level3DataForCategory]);
 
   const charts = useMemo(() => {
     if (!currentData) return [];
@@ -511,21 +319,17 @@ const ReportGenerator = () => {
 
   // Prepare Custom Chart Data
   const customChartData = useMemo(() => {
-     // Need access to both currentData and level3Cache
      const findMetricData = (k) => {
          if (currentData && currentData[k]) return currentData[k];
-         for (const cat of Object.keys(level3Cache)) {
-             const catData = level3Cache[cat]?.[viewMode];
-             if (catData && catData[k]) return catData[k];
-         }
+         if (level3DataForCategory && level3DataForCategory[k]) return level3DataForCategory[k];
          return null;
     };
 
      if (selectedMetrics.length === 0) return null;
-     
+
      const labels = [];
      const validKey = selectedMetrics.find(k => findMetricData(k));
-     
+
      if (validKey) {
          const rawData = findMetricData(validKey);
           Object.keys(rawData).forEach(k => {
@@ -549,13 +353,13 @@ const ReportGenerator = () => {
              fill: false
           };
      });
-     
+
      return {
          labels,
          datasets: customDatasets
      };
 
-  }, [currentData, selectedMetrics, level3Cache, viewMode]);
+  }, [currentData, selectedMetrics, level3DataForCategory]);
 
 
   // --- Render ---
@@ -610,6 +414,7 @@ const ReportGenerator = () => {
                              '& .MuiTabs-indicator': { display: 'none' }
                         }}
                      >
+                        <Tab label="All" value="All" />
                         <Tab label="Historical" value="Historical" />
                         <Tab label="Forecasted" value="Forecasted" />
                      </Tabs>
@@ -620,7 +425,7 @@ const ReportGenerator = () => {
 
 
         {/* Content */}
-        {isLoading && (
+        {isLoading && !results && (
             <Box sx={{ display: 'flex', justifyContent: 'center', p: 8 }}>
                 <CircularProgress />
             </Box>
@@ -630,7 +435,7 @@ const ReportGenerator = () => {
              <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>
         )}
 
-        {!isLoading && !error && (
+        {!(isLoading && !results) && !error && (
             <Grid container spacing={3}>
                 {/* Custom Analysis Card (Always Visible) */}
                 <Grid item xs={12}>
@@ -645,18 +450,17 @@ const ReportGenerator = () => {
                                 </Typography>
                             </Box>
                             <Box>
-                                <MetricSelector 
+                                <MetricSelector
                                     metrics={availableMetrics}
                                     selectedMetrics={selectedMetrics}
                                     onToggleMetric={handleToggleMetric}
                                     maxSelection={3}
-                                    // New Props
                                     activeLevel={activeLevel}
                                     onLevelChange={setActiveLevel}
                                     level3Categories={LEVEL3_CATEGORIES}
                                     selectedLevel3Category={level3Category}
                                     onLevel3CategoryChange={setLevel3Category}
-                                    isLoadingLevel3={isLoadingLevel3}
+                                    isLoadingLevel3={false}
                                 />
                             </Box>
                         </Box>

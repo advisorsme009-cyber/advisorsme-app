@@ -13,6 +13,11 @@ import {
   Switch,
   FormControlLabel,
   Snackbar,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Divider,
 } from "@mui/material";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import LinkedinAITheme from "../LinkedinAI/style/LinkedinAITheme";
@@ -20,7 +25,23 @@ import { apiUrl } from "./hooks/api";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import DescriptionIcon from "@mui/icons-material/Description";
 import PersonIcon from "@mui/icons-material/Person";
+import TableChartIcon from "@mui/icons-material/TableChart";
 import { useSettings } from "./context/SettingsContext";
+import useEngineExport from "./hooks/useEngineExport";
+
+const ENGINE_MODULES = [
+  { key: "all", label: "All Modules" },
+  { key: "IS-CON", label: "Income Statement" },
+  { key: "BS", label: "Balance Sheet" },
+  { key: "CF", label: "Cash Flow" },
+  { key: "S&M", label: "Sales & Marketing" },
+  { key: "G&A", label: "General & Admin" },
+  { key: "FA", label: "Fixed Assets" },
+  { key: "WC", label: "Working Capital" },
+  { key: "DEBT", label: "Debt" },
+  { key: "equity", label: "Equity" },
+  { key: "eosp", label: "EOSP" },
+];
 
 // Create a theme override that fixes the transparent background issue
 const exportManagerTheme = createTheme({
@@ -42,6 +63,27 @@ const ExportManager = () => {
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [selectedModule, setSelectedModule] = useState("all");
+  const { exportModule, exportAll, exporting, error: engineError, setError: setEngineError } = useEngineExport();
+
+  const handleEngineExport = async () => {
+    if (!clientId.trim()) {
+      setError("Please enter a Client ID");
+      return;
+    }
+    try {
+      if (selectedModule === "all") {
+        await exportAll(clientId.trim());
+      } else {
+        await exportModule(clientId.trim(), selectedModule);
+      }
+      const label = ENGINE_MODULES.find((m) => m.key === selectedModule)?.label || selectedModule;
+      setSuccessMessage(`${label} export downloaded successfully!`);
+      setSnackbarOpen(true);
+    } catch {
+      // error is already set by the hook
+    }
+  };
 
   const handleDownloadFile = async (blob, filename) => {
     const url = window.URL.createObjectURL(blob);
@@ -334,6 +376,96 @@ const ExportManager = () => {
                     ? "Exporting..."
                     : "Export Historical Data"}
                 </Button>
+              </CardContent>
+            </Card>
+          </Grid>
+          {/* Engine Export Section */}
+          <Grid item xs={12}>
+            <Divider sx={{ my: 3 }} />
+            <Typography variant="h5" sx={{ fontWeight: 600, mb: 0.5 }}>
+              Financial Model (Engine)
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Export from the forecasting engine — includes historical and forecast data with formatted Excel.
+            </Typography>
+          </Grid>
+
+          <Grid item xs={12}>
+            <Card
+              elevation={3}
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                borderRadius: 2,
+              }}
+            >
+              <CardContent>
+                <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
+                  <TableChartIcon
+                    sx={{ fontSize: 32, color: "primary.main", mr: 1 }}
+                  />
+                  <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                    Financial Model Export
+                  </Typography>
+                </Box>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mb: 3 }}
+                >
+                  Export engine-calculated financial model data as a formatted Excel workbook.
+                  Choose a specific module or export all modules into a multi-sheet workbook.
+                </Typography>
+
+                {(engineError) && (
+                  <Alert severity="error" sx={{ mb: 2 }} onClose={() => setEngineError(null)}>
+                    {engineError}
+                  </Alert>
+                )}
+
+                <Box sx={{ display: "flex", gap: 2, alignItems: "flex-end", flexWrap: "wrap" }}>
+                  <FormControl sx={{ minWidth: 240 }} size="medium">
+                    <InputLabel>Module</InputLabel>
+                    <Select
+                      value={selectedModule}
+                      label="Module"
+                      onChange={(e) => setSelectedModule(e.target.value)}
+                    >
+                      {ENGINE_MODULES.map((m) => (
+                        <MenuItem key={m.key} value={m.key}>
+                          {m.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  <Button
+                    variant="contained"
+                    size="large"
+                    onClick={handleEngineExport}
+                    disabled={!!exporting || !clientId.trim()}
+                    startIcon={
+                      exporting ? (
+                        <CircularProgress size={20} color="inherit" />
+                      ) : (
+                        <FileDownloadIcon />
+                      )
+                    }
+                    sx={{
+                      py: 1.5,
+                      px: 4,
+                      fontWeight: 600,
+                      bgcolor: "#1F559B",
+                      "&:hover": { bgcolor: "#163C6E" },
+                    }}
+                  >
+                    {exporting
+                      ? "Exporting..."
+                      : selectedModule === "all"
+                      ? "Export All Modules"
+                      : `Export ${ENGINE_MODULES.find((m) => m.key === selectedModule)?.label}`}
+                  </Button>
+                </Box>
               </CardContent>
             </Card>
           </Grid>
