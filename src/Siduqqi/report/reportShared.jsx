@@ -46,7 +46,7 @@ export function AddToReportButton({ clientId, getPayload, disabled = false }) {
     setBusy(true);
     try {
       await postChartToReport(clientId, getPayload());
-      setToast({ severity: 'success', message: 'Added to Saved Reports' });
+      setToast({ severity: 'success', message: 'Added to Report Generator' });
     } catch (err) {
       setToast({ severity: 'error', message: err.message || 'Could not add chart' });
     } finally {
@@ -74,14 +74,14 @@ export function AddToReportButton({ clientId, getPayload, disabled = false }) {
           '&.Mui-disabled': { bgcolor: '#CBD5E1', color: '#fff' },
         }}
       >
-        Add to Saved Reports
+        Add to Report Generator
       </Button>
 
       <Dialog open={confirmOpen} onClose={() => !busy && setConfirmOpen(false)}>
-        <DialogTitle>Add this chart to Saved Reports?</DialogTitle>
+        <DialogTitle>Add this chart to the Report Generator?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            A snapshot of this chart will be pinned to Saved Reports, where you can add commentary
+            A snapshot of this chart will be pinned to the Report Generator, where you can add commentary
             and export it to PDF.
           </DialogContentText>
         </DialogContent>

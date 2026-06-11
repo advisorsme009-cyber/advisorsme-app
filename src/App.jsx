@@ -17,8 +17,7 @@ import BSForecasting from "./Siduqqi/BSForecasting";
 import ExportManager from "./Siduqqi/ExportManager";
 import FinancialSummaryTable from "./Siduqqi/FinancialSummaryTable";
 import ReportGenerator from "./Siduqqi/ReportGenerator";
-import ApiAndMetrics from "./Siduqqi/ApiAndMetrics";
-import SavedReports from "./Siduqqi/SavedReports";
+import ReportGeneratorLegacy from "./Siduqqi/ReportGeneratorLegacy";
 import BusinessValuationPage from "./Siduqqi/BusinessValuationPage";
 import ComparableCompaniesPage from "./Siduqqi/ComparableCompaniesPage";
 import ValuationMethodologyPage from "./Siduqqi/ValuationMethodologyPage";
@@ -214,17 +213,6 @@ function App() {
             />
 
             <Route
-              path="/ApiAndMetrics"
-              element={
-                <RequireAuth>
-                  <Dashboard>
-                    <ApiAndMetrics />
-                  </Dashboard>
-                </RequireAuth>
-              }
-            />
-
-            <Route
               path="/ReportGenerator"
               element={
                 <RequireAuth>
@@ -236,11 +224,11 @@ function App() {
             />
 
             <Route
-              path="/SavedReports"
+              path="/ReportGeneratorLegacy"
               element={
                 <RequireAuth>
                   <Dashboard>
-                    <SavedReports />
+                    <ReportGeneratorLegacy />
                   </Dashboard>
                 </RequireAuth>
               }
