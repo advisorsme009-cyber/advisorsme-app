@@ -17,6 +17,11 @@ import BSForecasting from "./Siduqqi/BSForecasting";
 import ExportManager from "./Siduqqi/ExportManager";
 import FinancialSummaryTable from "./Siduqqi/FinancialSummaryTable";
 import ReportGenerator from "./Siduqqi/ReportGenerator";
+import ApiAndMetrics from "./Siduqqi/ApiAndMetrics";
+import SavedReports from "./Siduqqi/SavedReports";
+import BusinessValuationPage from "./Siduqqi/BusinessValuationPage";
+import ComparableCompaniesPage from "./Siduqqi/ComparableCompaniesPage";
+import ValuationMethodologyPage from "./Siduqqi/ValuationMethodologyPage";
 import HistoricalAIAgent from "./Siduqqi/HistoricalAIAgent";
 import FinancialModelPage from "./Siduqqi/FinancialModelPage";
 import AssumptionsPage from "./Siduqqi/AssumptionsPage";
@@ -209,11 +214,66 @@ function App() {
             />
 
             <Route
+              path="/ApiAndMetrics"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <ApiAndMetrics />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
               path="/ReportGenerator"
               element={
                 <RequireAuth>
                   <Dashboard>
                     <ReportGenerator />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/SavedReports"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <SavedReports />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/BusinessValuation"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <BusinessValuationPage />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/ComparableCompanies"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <ComparableCompaniesPage />
+                  </Dashboard>
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/ValuationMethodology"
+              element={
+                <RequireAuth>
+                  <Dashboard>
+                    <ValuationMethodologyPage />
                   </Dashboard>
                 </RequireAuth>
               }

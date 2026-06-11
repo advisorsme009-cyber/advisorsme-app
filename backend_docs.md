@@ -1,7 +1,7 @@
 # Backend Documentation: AdvisorsME Financial Engine
 
 **Source of Truth** for system logic, data architecture, and operational flows.
-**Last updated:** 2026-05-01
+**Last updated:** 2026-05-18 (added §13 `engine2` — PDF → Excel formula-linked model via Gemini 3.1 Pro)
 
 ---
 
@@ -18,6 +18,9 @@
 │  tables from   │  tables to Lv3    │  from assumptions +         │
 │  PDF via AI    │  historical data  │  historical data            │
 ├────────────────┴──────────────────┴─────────────────────────────┤
+│  engine2 (NEW)  PDF → formula-linked Excel via Gemini 3.1 Pro   │
+│  Mounted at /engine2  (see §13)                                  │
+├──────────────────────────────────────────────────────────────────┤
 │                         Firestore                                │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐       │
 │  │  statements/  │  │ calculations/│  │  users/          │       │
@@ -25,6 +28,12 @@
 │  └──────────────┘  └──────────────┘  └──────────────────┘       │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+> **Two engines live side-by-side.** The original `app/engine/` runs the
+> Firestore-driven 5-step cascade (assumptions + historical data → forecasts).
+> The new `app/engine2/` is a stand-alone PDF → Excel pipeline that does not
+> use Firestore; it sends PDFs to Gemini 3.1 Pro and writes a formula-linked
+> workbook. UI clients can call either. See §13 for the engine2 contract.
 
 ---
 
@@ -118,7 +127,9 @@ Section headers (BS and CF) are rows with `"is_header": true` and no year values
 | DEBT | IS-CON finance costs, BS borrowings |
 | equity | BS equity section |
 | eosp | BS EOSB, CF EOSI |
-| valuation | DCF, CAPM, Comps (optional) |
+| BV | Business Valuation — DCF + sensitivity + trailing multiples (optional) |
+| Comps | Comparable Companies — forward EV/EBITDA scenarios (optional, depends on BV) |
+| VM | Valuation Methodology — football field + weighted fair value (optional, depends on BV + Comps) |
 
 ### Level Connections
 ```
@@ -147,7 +158,7 @@ Lv1 modules (IS-CON, BS, CF) do **not** simply pass through raw Firestore values
 | `totalExpenses` | `sellingMarketingExpenses + generalAdminExpenses` |
 | `operatingProfit` | `grossProfit + totalExpenses` |
 | `EBITDA` | `operatingProfit + equityIncome + fairValueLoss + otherIncomeLoss + oneOffItems` |
-| `netIncomeLoss` | `EBITDA - \|D&A\| - \|financeCosts\| - \|zakat\|` |
+| `netIncome` | `EBITDA - \|D&A\| - \|financeCosts\| - \|zakat\|` (US3-R1: renamed from `netIncomeLoss`) |
 
 **`oneOffItems` field:** An optional Firestore field in IS-CON lv1 for one-time items (e.g., impairment provisions) that appear between Operating Profit and EBITDA in the audited statements. These flow into historical EBITDA but are intentionally **not** included in `otherIncomeLoss` — keeping the forecast `other_income` seed clean. Store in Firestore as a year-keyed dict with negative values (expenses).
 
@@ -160,12 +171,15 @@ Lv1 modules (IS-CON, BS, CF) do **not** simply pass through raw Firestore values
 | `totalNonCurrentAssets` | sum of PPE, investments at FV, equity investment, other receivables NC |
 | `totalAssets` | `totalCurrentAssets + totalNonCurrentAssets` |
 | `totalCurrentLiabilities` | sum of ST borrowings, trade payables, accrued expenses, due to RP, zakat payable |
-| `totalNonCurrentLiabilities` | sum of EOSB, due to RP NC |
+| `otherLiabilities` | positive residual `totalAssets − totalEquity − totalCurrentLiabilities − Σ(canonical NCL rows)` — plug for liability lines the canonical schema has no slot for (US3-R3) |
+| `totalNonCurrentLiabilities` | sum of EOSB, due to RP NC, otherLiabilities |
 | `otherReserves` | `shareholdersEquity - (shareCapital + statutoryReserve + retainedEarnings)` — plug for unextracted equity components (General Reserve, Revaluation Reserve, etc.) |
 | `totalEquity` | `shareCapital + statutoryReserve + otherReserves + retainedEarnings` |
 | `totalLiabilitiesAndEquity` | `totalCurrentLiabilities + totalNonCurrentLiabilities + totalEquity` |
 
 **`otherReserves` plug:** Many clients have equity components (General Reserve, Revaluation Reserve, Partners' Accounts) that the AI extraction prompt may not name as individual line items. The BS calculator computes the gap between the AI-extracted `shareholdersEquity` total and the sum of known components (SC + SR + RE). Any gap > 1 SAR is stored as `otherReserves`. For the forecast, `otherReserves` is held flat at the last historical value. This ensures BS always balances regardless of extraction completeness. When the gap = 0 (all components were extracted), `otherReserves` is omitted from the output.
+
+**`otherLiabilities` plug (US3-R3):** The liabilities-side counterpart of `otherReserves`. For each historical year, after totals are computed, the BS calculator checks whether the canonical liability rows (ST borrowings, trade payables, accrued expenses, due-to-RP current/non-current, zakat payable, EOSB) plus equity sum to total assets. Any **positive** shortfall is stored as `otherLiabilities` in the non-current-liabilities section (a negative shortfall — total assets too low, e.g. a mis-extracted FV investment — is left visible, not plugged). For the forecast, `otherLiabilities` is held flat at the last historical value (0 when the last historical year already balances).
 
 **BS zero-fill:** After merging historical data, the BS calculator fills missing year values with 0 for all non-header, non-total data rows. This handles items like `investmentsAtFairValue` that are `None` in Firestore after divestment (2022+) but should display as 0. Without this, those cells would be absent from the output, breaking totals and the UI display.
 
@@ -243,6 +257,180 @@ Some clients (e.g. US-1) embed D&A fully within G&A and S&M cost centers in thei
 2. Zero out the `"depreciation"` item in G&A and S&M assumptions (removes double-count for forecast years — FA module provides the authoritative D&A below EBITDA)
 
 **Note:** When `depreciationAmortization` is zeroed in Firestore, the IS-CON historical formula produces EBITDA = OP (no D&A add-back) and `netIncomeLoss = EBITDA - financeCosts - zakat`. This is technically correct for the IS-CON structure where D&A is embedded in operating expenses rather than shown as a separate line.
+
+### US-3 Review (2026-05-10) — third-cycle fixes (R3, R17)
+
+- **Balance Sheet liabilities plug (US3-R3).** The BS rebuild now has an
+  `otherLiabilities` row (in the non-current-liabilities section) that
+  mirrors the `otherReserves` equity plug. For each historical year it
+  absorbs the **positive** residual `totalAssets − totalEquity −
+  totalCurrentLiabilities − Σ(canonical non-current-liability rows)` — the
+  case where the AI extraction's canonical liability rows don't sum to the
+  extracted `currentLiabilities` + `nonCurrentLiabilities` totals (extra
+  unmapped lines, or a current item the engine reclassified to non-current).
+  A *negative* residual is left visible — it indicates a known asset-side
+  data-quality issue (e.g. a mis-extracted FV investment) rather than
+  something to paper over. For the forecast `otherLiabilities` is held flat
+  at the last historical value (0 for clients whose last historical year
+  already balances). This makes the historical BS balance for clients like
+  US-3 (FY2023 residual ≈ 1.98M, FY2024 ≈ 0.16M) without disturbing the
+  benchmark clients (NSC clean years balance already → plug = 0).
+
+- **US-3 chart-of-accounts notes (US3-R17).** US-3's BS Lv1 extraction is
+  faithful to the source; several canonical WC items are genuinely zero:
+  - `prepayments` / `accruedExpenses` (Firestore
+    `prepaymentsAndOtherReceivables` / `accruedExpensesAndOtherLiabilities`)
+    are **not line items** in US-3's chart of accounts — zero in every year.
+    `otherReceivables` (non-current) is likewise zero everywhere.
+  - `dueFromRelatedParties` / `dueToRelatedParties` carry real balances in
+    FY2023/FY2024 but **settled to 0 in FY2025**.
+  The R17 acceptance test's `ACCEPTABLE_ZERO` set lists these four keys.
+  If a future review against US-3's actual financial statements shows
+  non-zero FY2025 values for any of them, the fix is upstream in the AI
+  historical extraction (`app/agents/historical_generation`), not the WC
+  alias map.
+
+### US-3 Review (2026-05-10) — second-cycle fixes
+
+The QA cycle on 2026-05-09 passed 12 of the 20 US-3 requirements; the
+2026-05-10 SWE pass re-implemented the remaining 8 (R3, R5, R8, R11, R12,
+R14, R17, R20):
+
+- **Module-name resolution (US3-R20).** Firestore stores `equity` and `eosp`
+  lowercase while `IS-CON`/`FA`/`S&M`/… and the new valuation modules
+  `BV`/`Comps`/`VM` use mixed casing. The route
+  handlers now run the requested module name through
+  `_resolve_module_name()` (case-insensitive lookup) before hitting the
+  repo — so `GET /engine/results/{client}/EOSP` resolves to the `eosp`
+  doc instead of 404-ing. `eosbRate` is the first key in
+  `MODULE_KEY_ORDER["eosp"]`.
+
+- **WC days sign (US3-R5).** `defaults_generator._derive_wc_days` now emits
+  POSITIVE day durations for `trade_payables_days_cogs` and
+  `accrued_expenses_days_cogs`. The WC calculator decides the credit
+  (negative) sign for COGS-driven items from `WC_LIABILITY_ITEMS`
+  membership, not from the sign of the days assumption (and `abs()`-es the
+  days first — so legacy hand-tuned negative-days assumptions still produce
+  the same result).
+
+- **S&M / G&A total terminal (US3-R8).** `_order_module_data` moves the
+  `total*` row (and `_analytics`) to the end of the S&M / G&A output, so
+  any non-canonical leftover line items (legacy `legalCost`, `insurance`,
+  `professionalFees`, `managementRecharge`, …) land before the total.
+
+- **FA seeding from BS PPE (US3-R11/R13/R14).** When FA Lv3's own closing
+  NBV for the reporting year diverges >50% from BS Lv1 `propertyAndEquipment`,
+  the orchestrator overlays the BS PPE series onto FA historical
+  `closingNBV`/`PropertyAndEquipment`. The FA forecast then seeds from the
+  authoritative BS value, `openingNBV[Y] = closingNBV[Y-1] = BS.PPE[Y-1]`,
+  and historical `additions` is re-derived from the roll-forward identity
+  `closingNBV[Y] - openingNBV[Y] + |depreciation[Y]|` (first historical
+  year `additions = 0`, matching CF's `capex_h = 0`). Small discrepancies
+  (e.g. the NSC 50K rounding case) leave FA Lv3 untouched.
+
+- **IS-CON D&A zero-as-missing (US3-R12).** The Step-3 FA→IS-CON D&A
+  injection now treats `-0.0`/`0` IS-CON Lv1 values as "missing" and fills
+  them from `outputs["FA"].data["depreciation"]`; non-zero IS-CON Lv1
+  values are still preserved. The FA-injected IS-CON historical is also
+  passed to the CF calculator (`_is_con`) so CF's depreciation/capex rows
+  reconcile with FA.
+
+### US-3 Review (2026-05-09) — Output schema changes
+
+The 2026-05-09 client review introduced fixed canonical schemas for several
+modules. The calculator code still produces the legacy keys; routes-layer
+filtering (`_order_module_data` in `routes.py`) drops non-canonical keys
+and applies output-side renames before returning JSON. Calculator-to-
+calculator data flow (`upstream` dicts) is unchanged.
+
+**IS-CON terminal row (US3-R1).** The terminal Net Income row is now
+`netIncome` (was `netIncomeLoss`). The rename is applied in
+`MODULE_OUTPUT_KEY_ALIASES["IS-CON"]`. All cross-module reads continue to
+use the calculator key `netIncomeLoss` in-memory.
+
+**IS-CON D&A reconciliation (US3-R2/R12).** The orchestrator injects FA
+historical depreciation into the IS-CON historical merge when IS-CON Lv1
+lacks a `depreciationAmortization` value for a year **or the value is ~zero**
+(`-0.0` / `0` are treated as missing). **Tie-break rule: FA wins** — FA is
+the source of truth for depreciation; IS-CON D&A is derived from
+`outputs["FA"].data["depreciation"]`. Non-zero IS-CON Lv1 values are
+preserved (they may be a deliberate double-count fix — see §3 "D&A
+Double-Count Pattern"). This guarantees
+`abs(IS-CON.depreciationAmortization[Y]) == FA.depreciationCharge[Y]`
+for every year (within 1 SAR). The FA-injected IS-CON historical is also
+passed to the CF calculator so CF's depreciation/capex rows reconcile.
+
+**Canonical CF schema (US3-R7).** `MODULE_KEY_ORDER["CF"]` now defines a
+real-statement layout (profit before zakat → adjustments → operating
+working capital changes → operating activities → investing → financing
+→ net change → opening/closing cash). The CF calculator populates these
+canonical rows alongside the legacy FCF rows; the routes-layer filter
+drops legacy keys at read time.
+
+| Legacy CF key | Canonical CF key |
+|---|---|
+| `depreciationAmortization` | `depreciation` |
+| `capitalExpenditures` | `capex` |
+| `openingBalance` | `openingCash` |
+| `closingBalance` | `closingCash` |
+| `equityDividendPaid` | `dividendsPaid` |
+| `cashIncome` | `cashGeneratedFromOperatingActivities` |
+| `freeCashFlows` | `netChangeInCash` |
+
+`difference` and `cashBalancePerBS` are kept as derived reconciliation rows
+(US3-R6 — see below).
+
+**CF reconciliation difference (US3-R6).** `cf.difference[Y]` is now derived
+from `closing_cash - cashBalancePerBS` (forecast: 0 by construction; historical:
+the engine vs. BS gap). It is no longer a hard-coded zero.
+
+**Canonical FA schema (US3-R15/R16).** FA output is restricted to the
+canonical NSC/ECSO layout: `openingNBV`, `additions`, `depreciationCharge`,
+`closingNBV`. Asset-class breakdowns (Land / Buildings / Vehicles / etc.)
+are dropped from the JSON response. Categorical FA mode still computes
+per-category schedules internally for the cascade, but only summary rows
+ship in the response.
+
+| Legacy FA key | Canonical FA key |
+|---|---|
+| `PropertyAndEquipment` | `openingNBV` |
+| `depreciation` | `depreciationCharge` |
+
+**FA opening balance correction (US3-R11).** For historical years,
+`FA.openingNBV[Y]` now equals the prior year's closing NBV (= `BS.propertyAndEquipment[Y-1]`).
+The original calculator merged historical PPE balances directly into
+the opening row, which incorrectly placed year-end values into the
+opening column.
+
+**Canonical DEBT schema (US3-R19).** DEBT output is restricted to:
+`openingBalance`, `borrowings`, `repayments`, `closingBalance`,
+`currentPortion`, `nonCurrentPortion`, `_analytics`. `loanProceeds` is
+renamed to `borrowings`. `financeCosts` is filtered from the JSON
+response (still flows internally to IS-CON via the upstream dict).
+
+**S&M / G&A canonical line-item order (US3-R8/R9).** The line items now
+ship in this exact order: `salariesWagesAndBenefits`,
+`repairsAndMaintenance`, `rent`, `travelAndCommunication`,
+`sellingAndPromotion`, `stationary`, `other`, `totalSellingMarketing/AdminExpenses`.
+Per-item analytics groups (`annualGrowth`, `pctOfRevenue`, `commonSize`)
+are reordered to mirror the line-item sequence. The legacy
+`Other / Unallocated` row (`other_gap`) is dropped from the JSON response
+(`_order_module_data`); it still feeds gap-detection internally.
+
+**WC junk filter (US3-R18).** `amountsDueToCustomers` is dropped from the
+WC response when its historical values are all zero / empty. Clients who
+have construction-contract advances continue to see the row.
+
+**WC alias coverage (US3-R5/R17).** Additional Firestore alias mappings for
+`tradePayables`, `accruedExpenses`, `dueToRelatedParties`, `dueFromRelatedParties`,
+`inventories`, `zakatPayable`, and `prepayments` were added to `WC_HIST_KEY_MAP`
+(calculator-side) and `HIST_KEY_ALIASES["WC"]` (routes-side) so US-3's
+historical extraction lands in the canonical WC slot.
+
+**EOSP eosbRate row (US3-R20).** `eosp.eosbRate` is now a visible row in
+both the JSON response and the Excel export, populated with the EOSB rate
+(`1/24 = 0.041666...` per CLAUDE.md convention #5) for every year so
+analysts can see the assumption driving the provision movement.
 
 ### Known Firestore Data Quality Issues (pwc-test-123456)
 
@@ -331,9 +519,20 @@ Step 5: Balance Sheet
   Input: WC + FA + Debt + Equity + CF + EOSP + IS-CON
   Output: Full BS with validation (balanceCheck = 0)
 
-Step 6: Valuation (optional — only runs if assumptions.valuation is set)
-  Input: CF (FCFs) + IS-CON (EBITDA, NI) + DEBT (net debt) + BS (cash)
-  Output: CAPM, WACC, DCF valuation, Comparable Companies, Summary
+Step 6a: BV — Business Valuation (DCF) [optional — runs if assumptions.valuation.bv]
+  Input: CF (freeCashFlows) + IS-CON (EBITDA, NI, revenue) + DEBT (closingBalance) + BS (cash)
+  Output: DCF schedule + Gordon-growth terminal + 3×3 sensitivity matrix
+          + EV/EBITDA, P/E, EV/Sales trailing multiples (historical + forecast)
+
+Step 6b: Comps — Comparable Companies [optional — runs if assumptions.valuation.comps]
+  Input: BV (presentValueFactor) + IS-CON (EBITDA) + DEBT (closingBalance) + BS (cash)
+  Output: 4 scenario blocks (Global × FY+1, FY+2; Emerging × FY+1, FY+2)
+          + industry-averages table + applied multiples + source note
+
+Step 6c: VM — Valuation Methodology [optional — runs if assumptions.valuation.vm]
+  Input: BV (equityValue, sensitivity) + Comps (block.equityEstimate) + IS-CON (revenue) + BS (totalEquity)
+  Output: Football-field range table (DCF / EBITDA FY+1 / EBITDA FY+2 / Revenue / Book Value)
+          + weighted-average panel + final fair-value estimate (FLOOR rounded to 0.5 SAR MM)
 ```
 
 ---
@@ -358,13 +557,13 @@ Step 6: Valuation (optional — only runs if assumptions.valuation is set)
 | `depreciationAmortization` | Depreciation and amortization |
 | `financeCosts` | Finance costs |
 | `zakat` | Zakat |
-| `netIncomeLoss` | Net income/(loss) |
+| `netIncome` | Net income/(loss) (US3-R1: terminal IS-CON row, renamed from `netIncomeLoss`) |
 
 **Analytics (in guaranteed display order):** `salesGrowthYoY`, `smGrowthYoY`, `smPctOfRevenue`, `gaGrowthYoY`, `gaPctOfRevenue`, `grossProfitMargin`, `operatingProfitMargin`, `EBITDAMargin`, `netIncomeMargin`
 
 **First forecast year analytics:** Growth KPIs (salesGrowthYoY, smGrowthYoY, gaGrowthYoY) for the first forecast year use the last historical year as the base — they are never `None`.
 
-### 5.2 Balance Sheet (25 data rows + 3 section headers, 4 analytics)
+### 5.2 Balance Sheet (26 data rows + 3 section headers, 4 analytics)
 
 **Data (in guaranteed display order):**
 
@@ -396,7 +595,8 @@ Section headers have `"is_header": true` and no year values — they are visual 
 | `totalCurrentLiabilities` | Current Liabilities | subtotal | Sum of above 5 items |
 | `employeeTerminationBenefits` | Employee termination benefits | data | EOSP module |
 | `dueToRelatedPartiesNonCurrent` | Due to related parties (non-current) | data | Held flat (last historical) |
-| `totalNonCurrentLiabilities` | Non-Current Liabilities | subtotal | LT borrowings + EOSB + RP NC |
+| `otherLiabilities` | Other liabilities | data | Plug (US3-R3): historical positive residual `TA − Equity − CL − Σ(canonical NCL)`; held flat in forecast (0 when last historical year balances) |
+| `totalNonCurrentLiabilities` | Non-Current Liabilities | subtotal | LT borrowings + EOSB + RP NC + otherLiabilities |
 | `_sectionEquity` | SHAREHOLDERS' EQUITY | header | — (no values) |
 | `shareCapital` | Share capital | data | Equity module (held flat) |
 | `statutoryReserve` | Statutory reserve | data | Equity module (10% of NI, capped) |
@@ -553,18 +753,36 @@ Section headers have `"is_header": true`. The API injects them automatically.
 
 **Equity component initialization (None-aware):** The forecast starting balances for Share Capital, Statutory Reserve, and Retained Earnings use `_last_hist_value(data)` instead of `extract_year_values`. This is critical for clients where the most recent historical year has `None` values (e.g. SR withdrawn: `{"2022": 3M, "2023": 3M, "2024": None, "2025": None}`). `extract_year_values` skips None and would incorrectly seed the forecast at 3M. `_last_hist_value` reads the chronologically latest year key and returns 0 when that value is None.
 
-### 5.11 Valuation (optional, ~25 data rows, 3 analytics)
+### 5.11 BV — Business Valuation (DCF) (optional)
 
-Only generated when `assumptions.valuation` is set.
+Only generated when `assumptions.valuation.bv` is set. File: `app/engine/calculators/bv.py`.
 
-**Data:** Four sections:
-- **CAPM:** `riskFreeRate`, `equityRiskPremium`, `beta`, `costOfEquity`
-- **WACC:** `costOfDebt`, `equityWeight`, `debtWeight`, `wacc`
-- **DCF:** `fcf` (per year), `discountFactor`, `pvFcf`, `terminalValue`, `pvTerminalValue`, `sumPvFcf`, `enterpriseValue`, `netDebt`, `dcfEquityValue`
-- **Comparable Companies** (if provided): `compsEvEbitda`, `compsImpliedEv`, `compsPe`, `compsImpliedEquity`
-- **Summary:** `summaryDcf`, `summaryComps`
+**Data (display order):**
+- **DCF block** — `freeCashFlow` (per forecast year), `presentValueFactor` (1.0 at valuation year, `1/(1+dr)^(year-val_date)` elsewhere), `presentValueFcf` (0 at valuation year, `fcf * pv` elsewhere)
+- **Assumptions** — `discountRate`, `growthRate` (single value placed in valuation-year column)
+- **Terminal Value** — `fcfNextPeriod` = `last_fcf * (1+g)`, `terminalValue` = `fcfNextPeriod / (dr − g)`, `terminalPvFactor` = PV factor of the last forecast year, `presentValueTerminal` = `terminalValue * terminalPvFactor`
+- **Summary** — `sumPvFcf` (sum across forecast years, rounded to 100K), `pvTerminalRounded`, `equityValue` = `sumPvFcf + pvTerminalRounded`. All three placed in last-forecast-year column
+- **Sensitivity** — `sensitivity` row holds a nested dict: `{"matrix": {str(dr): {str(g): equity_value, ...}, ...}, "discount_rates": [dr−Δ, dr, dr+Δ], "growth_rates": [g−Δ, g, g+Δ]}`. Center cell == `equityValue`. Each cell uses the same `ROUND(...,-5)` rounding as the summary
+- **Trailing multiples** — `evEbitda` = `equity / EBITDA`, `peRatio` = `equity / NI`, `evSales` = `equity / revenue`, populated for **all** years (historical + forecast) so analysts can compare implied multiples through time
 
-**Analytics:** `wacc`, `costOfEquity`, `costOfDebt`
+### 5.12 Comps — Comparable Companies (optional, depends on BV)
+
+Only generated when `assumptions.valuation.comps` is set. File: `app/engine/calculators/comps.py`.
+
+**Data (4 scenarios + industry table):**
+- **Scenario blocks** — `globalFy1`, `globalFy2`, `emergingFy1`, `emergingFy2`. Each is a nested dict with `ebitda`, `multiple`, `evEstimateGross`, `pvFactor` (reused from BV.presentValueFactor), `evEstimate`, `netDebt` (= `−(DEBT.closingBalance − BS.cash)` at valuation date), `equityEstimate`. Each row carries `{label, year, value}` so the export can render the year band
+- **Industry-averages table** — one `industry_<slug>` row per `comps.industries` entry with `global` and `emerging` columns
+- **Averages & applied multiples** — `globalAverage`, `emergingAverage`, `liquidityDiscountGlobal/Emerging`, `appliedMultipleGlobal/Emerging` (`= avg * (1 − discount)`, rounded to 1 dp). The applied multiple is the value used by the scenario blocks
+- **Source note** — `sourceNote` row (string-only, e.g. "Source: Damodaran (Jan 2024 data)")
+
+### 5.13 VM — Valuation Methodology (optional, depends on BV + Comps)
+
+Only generated when `assumptions.valuation.vm` is set. File: `app/engine/calculators/vm.py`. **Values are in SAR Millions** (divided by 1,000,000) to mirror the Excel.
+
+**Data:**
+- **Football field ranges** — `dcfRange` (lower = BV sensitivity at `dr+Δ, g+Δ`; upper = at `dr−Δ, g−Δ`), `ebitdaMultipleFy1Range` (lower = Comps.globalFy1.equityEstimate, upper = Comps.emergingFy1.equityEstimate), `ebitdaMultipleFy2Range` (FY+2 variant), `revenueMultipleRange` (= `revenue[last_hist] * [low, high]` from `vm.revenue_multiple_low/high`), `bookValueRange` (lower = upper = `BS.totalEquity[val_date]`). Each row carries `{lower, upper, lowerLabel, upperLabel, comment}`
+- **Weighted summary** — `weightedDcf` (value = BV central, weight = `vm.weights.dcf`), `weightedEbitdaFy1/Fy2` (value = midpoint of corresponding range), `weightedBookValue` (value = book-value lower). Each carries `{value, weight, contribution}`
+- **Final fair value** — `fairValueEstimate` row: `{value: FLOOR(Σ contributions, 0.5), weight_total: 1.0}`. Excel uses `FLOOR(x, 0.5)`; engine uses `math.floor(x / 0.5) * 0.5`. The model_validator on `VmAssumptions` enforces `weights` sum to 1.0 ± 1e-6
 
 ---
 
@@ -724,7 +942,7 @@ while (true) {
   ],
   "data_quality_score": 74,
   "model_status": "success",
-  "modules_computed": ["IS-CON", "BS", "CF", "S&M", "G&A", "FA", "WC", "DEBT", "equity", "eosp", "valuation"]
+  "modules_computed": ["IS-CON", "BS", "CF", "S&M", "G&A", "FA", "WC", "DEBT", "equity", "eosp", "BV", "Comps", "VM"]
 }
 ```
 
@@ -820,8 +1038,9 @@ The export endpoint loads **both** forecast data (from `forecasting_lv1/lv3`) an
 **Historical-only items** (e.g., G&A `rent`, `itCosts`, `depreciation` which existed in 2017-2022 but were dropped in 2023) are included in the export with historical values only — no forecast is generated for discontinued items. This is correct behavior.
 
 ### Features
-- **Single module export:** `GET /engine/export/{client_id}/{module}` — one sheet per module
-- **All modules export:** `GET /engine/export/{client_id}` — one sheet per module in a single workbook
+- **Single module export:** `GET /engine/export/{client_id}/{module}` — one sheet per module **plus an `Assumptions` sheet** (when assumptions are stored for the client)
+- **All modules export:** `GET /engine/export/{client_id}` — one sheet per module in a single workbook, with the `Assumptions` sheet inserted as the **first tab** (when stored assumptions exist)
+- **Assumptions sheet:** `Parameter | Value | <forecast_year_1> | <forecast_year_2> | …` layout. Sections rendered in order: General → FX Rates → Revenue → Margins → Operating Expenses → Working Capital → Capital Expenditures → Depreciation Rates → Other → Debt → Valuation. Per-year dicts (e.g., `revenue.growth_yoy_pct`, `margins.gp_margin_sales_pct`) spread across year columns with `0.00%` formatting; scalars in the Value column. `LineItemAssumption` rows (under `opex.sm_expenses.items`, `opex.ga_expenses.items`) render as `<item label> | <driver> | <rate values across year cols>`. The historical-only export (`GET /engine/export/{client_id}/historical-only`) deliberately omits the Assumptions sheet — there is no forecast context for it
 - **Canonical display order preserved** for IS-CON, BS, CF (uses `MODULE_KEY_ORDER` from routes.py)
 - **Visual distinction:** Historical year columns have green headers, forecast years have orange headers
 - **Section headers** (BS, CF) rendered as bold divider rows
@@ -847,7 +1066,9 @@ The export endpoint loads **both** forecast data (from `forecasting_lv1/lv3`) an
 | DEBT | Debt Schedule |
 | equity | Equity |
 | eosp | End of Service Provision |
-| valuation | Valuation |
+| BV | Business Valuation |
+| Comps | Comparable Companies |
+| VM | Valuation Methodology |
 
 ---
 
@@ -940,6 +1161,9 @@ GET /engine/results/{client_id}/WC
 GET /engine/results/{client_id}/DEBT
 GET /engine/results/{client_id}/equity
 GET /engine/results/{client_id}/eosp
+GET /engine/results/{client_id}/BV       ← Business Valuation (DCF + sensitivity + multiples)
+GET /engine/results/{client_id}/Comps    ← Comparable Companies (4 scenarios + industry table)
+GET /engine/results/{client_id}/VM       ← Valuation Methodology (football field + weighted summary)
 
 # Historical only
 GET /engine/historical/{client_id}
@@ -1030,7 +1254,9 @@ AdvisorsME-API/
 │   │       ├── eosp.py, is_con.py, equity.py
 │   │       ├── cf.py                    # Cash Flow (FCF + Reconciliation)
 │   │       ├── bs.py                    # Balance Sheet (27 line items)
-│   │       └── valuation.py             # Valuation (DCF, CAPM, Comps — optional)
+│   │       ├── bv.py                    # Business Valuation (DCF + sensitivity + multiples — optional)
+│   │       ├── comps.py                  # Comparable Companies (4-block scenario grid — optional)
+│   │       └── vm.py                     # Valuation Methodology (football field + weighted summary — optional)
 │   ├── api/
 │   │   ├── AgentixPdf.py                # ACTIVE: PDF extraction, statement CRUD
 │   │   ├── Users.py                     # ACTIVE: User auth & management
@@ -1043,6 +1269,13 @@ AdvisorsME-API/
 │   │       ├── AIHelper.py              # ACTIVE: Gemini API helpers
 │   │       └── APIAiHelper.py           # DEPRECATED: old calculation logic
 │   ├── agents/historical_generation/    # ACTIVE: AI agent + generate-all (Lv1 + Lv3 + model)
+│   ├── engine2/                         # ACTIVE: PDF → formula-linked Excel via Gemini 3.1 Pro (see §13)
+│   │   ├── __init__.py                  # generate_excel_model() library entry
+│   │   ├── gemini_client.py             # Gemini 3.1 Pro v1alpha client (thinking_level=high)
+│   │   ├── prompts.py                   # System prompt sent to Gemini
+│   │   ├── schemas.py                   # Pydantic models for Gemini's JSON output
+│   │   ├── excel_builder.py             # Writes the 13-sheet .xlsx with real formulas
+│   │   └── router.py                    # FastAPI router mounted at /engine2
 │   ├── Utils/
 │   │   ├── FirestoreUtlis.py            # PARTIAL: statement queries active, calc deprecated
 │   │   ├── CalculationHelper.py         # DEPRECATED: old calc functions
@@ -1158,11 +1391,150 @@ python3 tests/benchmark_excel.py
 |------|-------|------|
 | `tests/test_engine_validation.py` | 126 | Integration (Firestore) |
 | `tests/test_gap_detection.py` | 14 | Unit |
-| `tests/test_valuation.py` | 11 | Unit |
+| `tests/test_valuation_suite.py` | 21 | Integration (TestClient) — VAL-R1..R6 regression for BV / Comps / VM |
 | `tests/test_leverage_ratio.py` | 3 | Unit |
 | `tests/test_export_formatting.py` | 16 | Unit |
 
-Run: `pytest tests/ -v` (all) or `pytest tests/test_gap_detection.py tests/test_valuation.py tests/test_leverage_ratio.py tests/test_export_formatting.py -v` (unit only, no Firestore).
+Run: `pytest tests/ -v` (all) or `pytest tests/test_gap_detection.py tests/test_leverage_ratio.py tests/test_export_formatting.py -v` (unit only, no Firestore).
+
+---
+
+## 13. engine2 — PDF → Formula-Linked Excel (NEW)
+
+A second, self-contained engine that takes raw PDF financial statements and
+produces a fully-formula-linked Excel three-statement model. It lives in
+`app/engine2/` and is mounted at the `/engine2` prefix. It **does not** read
+Firestore, share assumptions with the original engine, or use the 5-step
+cascade — it is a parallel pipeline meant for one-shot UI uploads where the
+user just wants a workbook.
+
+### 13.1 What it does
+
+```
+PDFs ──► Gemini 3.1 Pro (thinking_level=high, media_resolution_high)
+              │  extracts structured JSON (IS / BS / CF / schedules / assumptions)
+              ▼
+        GeminiAnalysis (Pydantic validated locally)
+              │
+              ▼
+        openpyxl builder ──► <ShortName>_Financial_Model.xlsx
+              │   13 sheets: Cover, Assumptions, IS, BS, CF,
+              │   Working_Capital_Schedule, PPE_Schedule, Debt_Schedule,
+              │   Equity_Schedule, Ratios, Checks, Line_Item_Map, Reconciliation
+              ▼   Every projected cell is a real Excel formula referencing Assumptions.
+```
+
+### 13.2 Environment variables
+
+| Var | Required | Default | Purpose |
+|---|---|---|---|
+| `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | **yes** | — | Gemini Developer API key. Project must have billing enabled — `gemini-3.1-pro-preview` has no free tier. |
+| `GEMINI_MODEL` | no | `gemini-3.1-pro-preview` | Override to swap to Flash for cheaper testing. |
+| `THINKING_LEVEL` | no | `high` | `high` = max reasoning for Pro. Lower = faster but lower accuracy. |
+| `MEDIA_RESOLUTION` | no | `media_resolution_high` | Per-PDF OCR token allowance. |
+| `ENGINE2_DATA_DIR` | no | `./engine2_data` | Where uploads and outputs are stored (e.g. `engine2_data/uploads/<job_id>`, `engine2_data/outputs/<job_id>/<File>.xlsx`). |
+| `ENGINE2_WORKERS` | no | `2` | Background thread pool size. |
+
+### 13.3 API endpoints
+
+Mounted in `main.py` with `app.include_router(engine2_router, prefix="/engine2")`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET`  | `/engine2/health` | Returns `{ok, gemini_key_set, model, thinking_level, media_resolution, upload_dir, output_dir}`. Use to confirm the API key is wired and show config in your UI. |
+| `POST` | `/engine2/generate` | `multipart/form-data` with one or more `files=` fields (PDFs only). Returns `202` with `{id, status:"queued", ...}`. The job runs in a background thread. |
+| `GET`  | `/engine2/status/{job_id}` | Returns `{status, message, summary, company_name, download_url, output_filename, error, ...}`. Poll every ~2 s. `status` ∈ `queued / analyzing / building / done / error`. |
+| `GET`  | `/engine2/download/{job_id}` | Streams the `.xlsx` when `status == "done"`. `409` if not ready, `404` if the id is unknown. |
+
+### 13.4 End-to-end UI flow
+
+```
+1. (Optional) GET /engine2/health
+       └─► confirm gemini_key_set == true before showing the upload button.
+
+2. POST /engine2/generate                       (multipart, one or more PDFs)
+       └─► 202 { id: "<job_id>", status: "queued", ... }
+
+3. Loop every ~2 s:
+       GET /engine2/status/<job_id>
+       └─► status transitions: queued → analyzing → building → done
+                                                              └─ error
+       └─► when status == "done":
+              - response.summary           ← 250-word executive summary
+              - response.company_name      ← detected company name
+              - response.download_url      ← "/engine2/download/<job_id>"
+
+4. GET /engine2/download/<job_id>
+       └─► streams <ShortName>_Financial_Model.xlsx
+```
+
+Typical latency: **60–240 seconds per generation** (Gemini Pro with
+`thinking_level=high`). Never block an HTTP handler on this — the router
+already runs the work in a `ThreadPoolExecutor`.
+
+### 13.5 Operational limits
+
+- **Inline PDF cap:** total request payload is soft-capped at **18 MB**.
+  PDFs are sent as `inline_data` (not via the v1alpha Files API, which has a
+  known upload bug). A 5–8 file pack of typical 1–3 MB statements is comfortable.
+- **Cost:** ~$0.20–$1.50 per generation (Gemini 3.1 Pro: $2/$12 per 1M
+  input/output tokens below 200k tokens; $4/$18 above).
+- **Job state is in-process.** `JOBS` is a dict guarded by a lock. With
+  multiple uvicorn workers, a job created on worker A won't be visible on
+  worker B. For production, swap `JOBS` for Redis and replace the
+  `ThreadPoolExecutor` with Celery/RQ/Arq — only `_run_job` needs to move.
+
+### 13.6 Output workbook
+
+Always one `.xlsx`. Hard-coded historicals are **blue**, formula projections
+are **black/green**, check cells are **red on FAIL**. Example formulas:
+
+| Cell | Formula |
+|---|---|
+| Revenue projection | `=D4*(1+'Assumptions'!E10)` |
+| COGS | `=-SUM('IS'!E4)*'Assumptions'!E11` |
+| Depreciation | `=-'PPE_Schedule'!E7` |
+| BS cash plug | `='CF'!E7` |
+| Gross margin | `=IFERROR('IS'!E6/SUM('IS'!E4),"")` |
+| BS balance check | `=IF(ABS(SUM(...)-SUM(...))<1,"OK","FAIL")` |
+
+### 13.7 Library usage (no HTTP)
+
+For server-side jobs that already have the PDFs locally:
+
+```python
+from pathlib import Path
+from app.engine2 import generate_excel_model, GeminiError
+
+try:
+    xlsx_path = generate_excel_model(
+        pdf_paths=[Path("fs_2022.pdf"), Path("fs_2023.pdf")],
+        output_dir=Path("/tmp/models"),
+    )
+    # xlsx_path → /tmp/models/<ShortName>_Financial_Model.xlsx
+except GeminiError as e:
+    ...  # billing not enabled, quota exhausted, malformed PDF, etc.
+```
+
+The call is synchronous and slow (1–4 min). Run it inside a background task
+or `run_in_executor`, never directly in a request handler.
+
+### 13.8 When things break — first place to look
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `/engine2/health` shows `gemini_key_set: false` | env var missing | Export `GEMINI_API_KEY` and restart uvicorn. |
+| Status `error` + message mentions `400 Bad Request` | Gemini schema/prompt drift | Read `app/engine2/prompts.py` against current `GeminiAnalysis` in `app/engine2/schemas.py`. |
+| Status `error` + `429 RESOURCE_EXHAUSTED` | Billing not enabled on the key's GCP project | Enable billing on the Google AI Studio project that owns the key. |
+| BS sheet shows `FAIL` in Checks | Model under-reported a BS line; usually a missing `projection_method` | Update the prompt in `app/engine2/prompts.py` — not the builder. |
+| Cells show formulas, not values | Reader doesn't auto-evaluate | Open in real Excel or re-save in LibreOffice. |
+
+### 13.9 Relationship to the original engine
+
+`engine2` and `app/engine/` are **independent**. They do not share Firestore
+collections, Pydantic models, the Excel exporter, the test suite, or the
+assumption generator. Adding endpoints under `/engine/*` does not affect
+`/engine2/*` and vice versa.
 
 ---
 
